@@ -1,0 +1,19 @@
+# Environment variables with sensitive credentials
+.env
+.env.local
+
+# Compiled binaries
+bin/
+ow-oc-controller
+
+# Go module cache / test files
+*.test
+*.out
+
+# Data & logs
+data/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClash 简易面板</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-container">
+      <div class="header-left">
+        <h1 class="app-title">OpenClash 简易面板</h1>
+      </div>
+
+      <!-- Main Navigation Tabs -->
+      <nav class="main-nav">
+        <button class="nav-item active" data-view="dashboard" id="nav-tab-dashboard">
+          <span>控制面板</span>
+        </button>
+        <button class="nav-item" data-view="connections" id="nav-tab-connections">
+          <span>连接日志</span>
+        </button>
+        <button class="nav-item" data-view="logs" id="nav-tab-logs">
+          <span>系统日志</span>
+          <span class="nav-dot" id="nav-log-dot" style="display: none;"></span>
+        </button>
+        <button class="nav-item" data-view="env" id="nav-tab-env">
+          <span>环境变量</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- VIEW 1: DASHBOARD -->
+    <div id="view-dashboard" class="view-panel active">
+      <!-- Top Control Banner -->
+      <section class="overview-section">
+        <!-- Card 1: Power Switch -->
+        <div class="overview-card power-card">
+          <div class="power-info">
+            <div class="card-label">服务总开关</div>
+            <div class="power-status-value" id="power-status-display">检测中...</div>
+            <div class="power-meta-info" id="power-meta">模式: - | 路由: -</div>
+          </div>
+          <div class="power-action">
+            <button class="btn-power" id="btn-power-toggle">
+              <span id="power-btn-text">切换开关</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2: Airport Selection Dropdown Menu (Symmetrical with Card 1) -->
+        <div class="overview-card power-card airport-card">
+          <div class="power-info" style="flex: 1; min-width: 0; margin-right: 12px;">
+            <div class="card-label" id="airport-card-title">选择机场(总数0)</div>
+            <div class="airport-custom-select-wrap" id="airport-custom-select-wrap">
+              <div class="airport-custom-trigger" id="airport-custom-trigger" tabindex="0">
+                <div class="airport-trigger-info">
+                  <span class="airport-trigger-name" id="airport-trigger-name">加载中...</span>
+                  <span class="airport-trigger-meta" id="airport-trigger-meta"></span>
+                </div>
+                <span class="airport-trigger-arrow">▼</span>
+              </div>
+              <div class="airport-custom-dropdown" id="airport-custom-dropdown" style="display: none;">
+                <div class="sub-list" id="airport-custom-options">
+                  <div class="loading-state">加载机场列表中...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="power-action">
+            <button class="btn-power btn-secondary-power" id="btn-open-subs">
+              <span>管理订阅</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 3: Outbound Node Display -->
+        <div class="overview-card info-card">
+          <div class="card-label">当前出口节点</div>
+          <div class="card-highlight" id="active-node-display">-</div>
+          <div class="card-meta" id="active-group-meta">策略组: -</div>
+        </div>
+
+        <!-- Card 4: Network Speed Test -->
+        <div class="overview-card speed-card">
+          <div class="card-header-row">
+            <div class="card-label">网络测速</div>
+            <div class="card-actions-group" style="display: flex; gap: 6px;">
+              <button class="btn-action btn-sm-action" id="btn-config-web-speed" title="配置测速目标网站">
+                <span>配置</span>
+              </button>
+              <button class="btn-action btn-sm-action" id="btn-test-web-speed">
+                <span id="web-speed-btn-text">测速</span>
+              </button>
+            </div>
+          </div>
+          <div class="web-speed-grid" id="web-speed-grid">
+            <div class="speed-item" id="speed-item-baidu">
+              <span class="speed-name">百度</span>
+              <span class="speed-val" id="speed-val-baidu">-</span>
+            </div>
+            <div class="speed-item" id="speed-item-bilibili">
+              <span class="speed-name">B站</span>
+              <span class="speed-val" id="speed-val-bilibili">-</span>
+            </div>
+            <div class="speed-item" id="speed-item-google">
+              <span class="speed-name">Google</span>
+              <span class="speed-val" id="speed-val-google">-</span>
+            </div>
+            <div class="speed-item" id="speed-item-youtube">
+              <span class="speed-name">YouTube</span>
+              <span class="speed-val" id="speed-val-youtube">-</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Operating Mode Notice Banner (Shown if SSH is not configured) -->
+      <div class="notice-banner" id="ssh-notice-card" style="display: none;">
+        <div class="notice-content">
+          <div class="notice-title">运行模式提示 (纯 Clash REST 模式)</div>
+          <div class="notice-text">
+            当前未配置 <code>OPENWRT_SSH_PASS</code>，已启用【Clash 核心直连管理模式】。在此模式下：已完全支持通过 Clash 核心 REST API 自动同步机场订阅、更新订阅、切换节点与测速；点击“停止服务”将切换至核心 Direct 直连出网。若需要通过系统命令完全终止 OpenWrt 上的 OpenClash 进程，可在 <code>.env</code> 中配置 SSH 密码。
+          </div>
+        </div>
+      </div>
+
+      <!-- Configuration Groups Section (Strategy Groups) -->
+      <section class="section-container" id="groups-section">
+        <div class="section-header">
+          <div class="section-title">
+            <h2>配置组</h2>
+          </div>
+        </div>
+
+        <div class="groups-grid" id="groups-grid">
+          <div class="empty-state">正在载入配置组...</div>
+        </div>
+      </section>
+
+      <!-- Proxies & Nodes Section -->
+      <section class="section-container" id="nodes-section">
+        <div class="section-header">
+          <div class="section-title">
+            <h2 id="nodes-section-title">切换节点</h2>
+          </div>
+
+          <div class="section-actions">
+            <button class="btn-action" id="btn-test-latency">
+              <span id="test-latency-text">测速</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Nodes Grid -->
+        <div class="nodes-grid" id="nodes-grid">
+          <div class="loading-state">正在检测服务状态...</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- VIEW 2: CONNECTIONS -->
+    <div id="view-connections" class="view-panel" style="display: none;">
+      <section class="section-container conn-section">
+        <div class="section-header">
+          <div class="section-header-left">
+            <div class="search-box">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="conn-search" placeholder="搜索" autocomplete="off">
+            </div>
+          </div>
+
+          <div class="section-actions">
+            <div class="toggle-switch-wrapper" title="定时自动刷新连接日志">
+              <span class="toggle-label-text">自动刷新</span>
+              <label class="switch-toggle">
+                <input type="checkbox" id="conn-auto-refresh-check" checked>
+                <span class="slider-toggle"></span>
+              </label>
+            </div>
+
+            <button class="btn-action" id="btn-export-conns">
+              <span>导出</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="conn-table-wrapper">
+          <table class="conn-table" id="conn-table">
+            <thead>
+              <tr>
+                <th style="width: 130px;">时间</th>
+                <th style="width: 120px;">来源 IP</th>
+                <th style="width: 28%; min-width: 180px;">目标地址</th>
+                <th style="width: 130px;">网络 / 类型</th>
+                <th style="width: 22%; min-width: 140px;">代理节点</th>
+                <th style="width: 16%; min-width: 120px;">匹配规则</th>
+                <th style="width: 130px;">上传 / 下载</th>
+              </tr>
+            </thead>
+            <tbody id="conn-table-body">
+              <tr>
+                <td colspan="7" class="loading-state">正在加载连接日志...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="pagination-container" id="conn-pagination">
+          <div class="pagination-info" id="conn-page-info">共 0 条记录，第 1 / 1 页</div>
+          <div class="pagination-controls">
+            <div class="page-size-selector">
+              <label for="conn-page-size">每页</label>
+              <input type="number" id="conn-page-size" min="1" max="10000" value="200" class="page-size-input">
+              <span>条记录</span>
+            </div>
+            <div class="page-jump-selector">
+              <label for="conn-page-select">跳转至</label>
+              <select id="conn-page-select" class="page-select">
+                <option value="1">第 1 页</option>
+              </select>
+            </div>
+            <div class="pagination-actions">
+              <button class="btn-page" id="btn-conn-first" disabled>首页</button>
+              <button class="btn-page" id="btn-conn-prev" disabled>上一页</button>
+              <button class="btn-page" id="btn-conn-next" disabled>下一页</button>
+              <button class="btn-page" id="btn-conn-last" disabled>末页</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- VIEW 3: LOGS -->
+    <div id="view-logs" class="view-panel" style="display: none;">
+      <section class="section-container log-section">
+        <div class="section-header">
+          <div class="section-header-left">
+            <div class="search-box">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="log-search" placeholder="搜索" autocomplete="off">
+            </div>
+
+            <!-- Filter Pills -->
+            <div class="log-filter-group" id="log-filters">
+              <button class="log-filter-btn active" data-level="ALL">全部</button>
+              <button class="log-filter-btn" data-level="ERROR">错误</button>
+              <button class="log-filter-btn" data-level="WARN">警告</button>
+              <button class="log-filter-btn" data-level="SUCCESS">成功</button>
+              <button class="log-filter-btn" data-level="INFO">信息</button>
+            </div>
+          </div>
+
+          <div class="section-actions">
+            <div class="toggle-switch-wrapper" title="定时自动刷新系统日志">
+              <span class="toggle-label-text">自动刷新</span>
+              <label class="switch-toggle">
+                <input type="checkbox" id="log-auto-refresh-check" checked>
+                <span class="slider-toggle"></span>
+              </label>
+            </div>
+
+            <button class="btn-action" id="btn-export-logs">
+              <span>导出</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Log List Terminal Display -->
+        <div class="log-terminal" id="log-terminal">
+          <div class="loading-state">正在加载日志...</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- VIEW 4: ENVIRONMENT VARIABLES -->
+    <div id="view-env" class="view-panel" style="display: none;">
+      <section class="section-container env-section">
+        <div class="section-header">
+          <div class="section-header-left">
+            <div class="env-file-meta">
+              <span class="env-file-badge" id="env-file-badge">正在检查...</span>
+              <span class="env-file-path" id="env-file-path">.env</span>
+            </div>
+          </div>
+
+          <div class="section-actions">
+            <button class="btn-action" id="btn-init-env" title="从模版初始化（恢复默认配置模版）">
+              <span>初始化</span>
+            </button>
+            <button class="btn-action" id="btn-reload-env" title="重新从磁盘读取文件">
+              <span>重新读取</span>
+            </button>
+            <button class="btn-action btn-primary" id="btn-save-env" title="保存环境变量并热重载">
+              <span>保存</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="env-editor-wrapper">
+          <textarea id="env-editor" class="env-editor" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="正在加载环境变量..."></textarea>
+        </div>
+
+        <div class="env-help-box">
+          <div class="env-help-title">常用变量说明</div>
+          <div class="env-help-grid">
+            <div class="env-help-item">
+              <code>OPENWRT_HOST</code>
+              <span>OpenWrt 主路由局域网 IP（默认 192.168.1.1）</span>
+            </div>
+            <div class="env-help-item">
+              <code>OPENCLASH_API_PORT</code>
+              <span>OpenClash 外部控制端口（默认 9090）</span>
+            </div>
+            <div class="env-help-item">
+              <code>OPENCLASH_API_SECRET</code>
+              <span>外部控制密钥（未设置留空）</span>
+            </div>
+            <div class="env-help-item">
+              <code>OPENWRT_SSH_PASS</code>
+              <span>OpenWrt SSH root 密码（用于启停服务与切换机场）</span>
+            </div>
+            <div class="env-help-item">
+              <code>POWER_TOGGLE_MODE</code>
+              <span>启停策略（smart / service / mode）</span>
+            </div>
+            <div class="env-help-item">
+              <code>SUBSCRIPTION_PROXY</code>
+              <span>机场订阅拉取专用代理（如 http://192.168.1.1:7890）</span>
+            </div>
+          </div>
+          <div class="env-help-note">
+            提示：点击「保存」后系统将立即热更新当前运行中的路由器与 Clash 连接参数；若修改了 Docker 容器对外暴露端口 (PORT) 或时区 (TZ)，建议在控制台执行 <code>docker compose restart</code>。
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Modal: Subscription Manager -->
+  <div class="modal-overlay" id="modal-subscriptions" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title">订阅与机场管理</h3>
+        <button class="btn-modal-close" id="btn-close-sub-modal">关闭</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Add Subscription Form -->
+        <div class="sub-form-card">
+          <div class="sub-form-title">添加新订阅</div>
+          <div class="sub-form-row">
+            <div class="form-group">
+              <label for="sub-input-name">名称</label>
+              <input type="text" id="sub-input-name" placeholder="可选" autocomplete="off">
+            </div>
+            <div class="form-group form-group-flex">
+              <label for="sub-input-url">链接</label>
+              <input type="url" id="sub-input-url" placeholder="https://..." autocomplete="off">
+            </div>
+            <div class="form-group-btn" style="display: flex; gap: 8px;">
+              <button class="btn-action btn-primary-action" id="btn-add-sub">导入</button>
+              <button class="btn-action" id="btn-upload-yaml-trigger" type="button">上传 YAML</button>
+              <input type="file" id="file-upload-yaml" accept=".yaml,.yml" style="display: none;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Subscriptions List -->
+        <div class="sub-list-section">
+          <div class="sub-list-header-row">
+            <div class="sub-list-title">配置</div>
+            <button class="btn-action btn-sm-action" id="btn-batch-update-subs">
+              <span id="batch-update-btn-text">批量更新</span>
+            </button>
+          </div>
+          <div class="sub-list" id="sub-list-container">
+            <div class="loading-state">加载订阅列表中...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Speed Test Target Config -->
+  <div class="modal-overlay" id="modal-speed-config" style="display: none;">
+    <div class="modal-dialog" style="max-width: 620px;">
+      <div class="modal-header">
+        <h3 class="modal-title">自定义网络测速目标</h3>
+        <button class="btn-modal-close" id="btn-close-speed-config-modal">关闭</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="speed-config-intro">
+          设置 4 个网络测速目标网站的名称与探测链接（建议使用轻量 204 无内容响应或 favicon 图标地址）：
+        </div>
+        <div class="speed-config-list" id="speed-config-items">
+          <!-- Populated by JS -->
+        </div>
+        <div class="speed-config-footer">
+          <button class="btn-action" id="btn-reset-speed-config" type="button">恢复默认</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-action" id="btn-cancel-speed-config" type="button">取消</button>
+            <button class="btn-action btn-primary-action" id="btn-save-speed-config" type="button">保存</button>
+          </div>
+        </div>
+  <!-- Modal: Global Mode Confirmation for Subscription Download -->
+  <div class="modal-overlay" id="modal-global-confirm" style="display: none;">
+    <div class="modal-dialog" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3 class="modal-title">出海下载确认</h3>
+        <button class="btn-modal-close" id="btn-close-global-confirm">关闭</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <div class="confirm-alert-card">
+          <div class="confirm-alert-header">
+            <span class="confirm-alert-badge">分流阻断提示</span>
+            <span class="confirm-alert-title">直连与常规规则分流均无法访问</span>
+          </div>
+          <p class="confirm-alert-desc" id="global-confirm-desc">
+            订阅域名直连不可达，且当前 OpenClash 规则分流未包含该订阅域名（导致直接连接被防火墙阻断）。
+          </p>
+        </div>
+
+        <div class="confirm-impact-box">
+          <div class="confirm-impact-title">临时全局出海影响说明</div>
+          <ul class="confirm-impact-list">
+            <li><strong>全网影响：</strong>允许后，OpenClash 将临时切换为<strong>全局代理模式（约 2~3 秒）</strong>强制走海外代理节点拉取订阅。切换期间，<strong>全屋所有连接该路由器的设备流量</strong>将短暂全部走代理出海。</li>
+            <li><strong>自动恢复：</strong>无论拉取成功与否，下载结束后将<strong>立即自动恢复</strong>为您原本的规则分流模式。</li>
+            <li><strong>替代方案：</strong>若您不希望临时影响全屋网络，可点击“取消”，并通过“上传 YAML”按钮直接导入机场配置文件。</li>
+          </ul>
+        </div>
+
+        <div class="confirm-modal-actions">
+          <button class="btn-action" id="btn-cancel-global-confirm" type="button">取消</button>
+          <button class="btn-action btn-primary-action" id="btn-approve-global-confirm" type="button">允许并继续出海下载</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

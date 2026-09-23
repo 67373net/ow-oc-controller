@@ -1,0 +1,45 @@
+services:
+  ow-oc-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ow-oc-controller
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+      - OPENWRT_HOST=${OPENWRT_HOST:-192.168.1.1}
+      - OPENCLASH_API_PORT=${OPENCLASH_API_PORT:-9090}
+      - OPENCLASH_API_SECRET=${OPENCLASH_API_SECRET:-}
+      - OPENWRT_SSH_PORT=${OPENWRT_SSH_PORT:-22}
+      - OPENWRT_SSH_USER=${OPENWRT_SSH_USER:-root}
+      - OPENWRT_SSH_PASS=${OPENWRT_SSH_PASS:-}
+      - OPENWRT_SSH_KEY=${OPENWRT_SSH_KEY:-}
+      - POWER_TOGGLE_MODE=${POWER_TOGGLE_MODE:-smart}
+      - TEST_URL=${TEST_URL:-http://www.gstatic.com/generate_204}
+      - TEST_TIMEOUT=${TEST_TIMEOUT:-3000}
+      - POLL_INTERVAL=${POLL_INTERVAL:-5}
+      - CONN_LOG_RETENTION_DAYS=${CONN_LOG_RETENTION_DAYS:-8}
+      - SUBSCRIPTION_PROXY=${SUBSCRIPTION_PROXY:-}
+      - TZ=${TZ:-Asia/Shanghai}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./data:/app/data
+      - ./:/app/host_project
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 64M
+        reservations:
+          memory: 16M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
