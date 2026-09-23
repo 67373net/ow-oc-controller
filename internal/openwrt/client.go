@@ -320,3 +320,81 @@ func (c *Client) WriteFile(ctx context.Context, remotePath string, content []byt
 	}
 }
 
+// GetRecentOpenClashLog reads the recent log lines from OpenWrt /tmp/openclash.log or logread
+func (c *Client) GetRecentOpenClashLog(ctx context.Context, lines int) (string, error) {
+	if !c.hasConfig {
+		return "", fmt.Errorf("ssh not configured")
+	}
+	if lines <= 0 {
+		lines = 50
+	}
+	cmd := fmt.Sprintf("if [ -f /tmp/openclash.log ]; then tail -n %d /tmp/openclash.log; else logread -e 'OpenClash' | tail -n %d; fi", lines, lines)
+	return c.RunCommand(ctx, cmd)
+}
+
+// DiagnoseFailure extracts fatal error or core failure messages from recent OpenClash log
+func (c *Client) DiagnoseFailure(ctx context.Context) string {
+	logContent, err := c.GetRecentOpenClashLog(ctx, 40)
+	if err != nil || strings.TrimSpace(logContent) == "" {
+		return ""
+	}
+	lines := strings.Split(logContent, "\n")
+	var errLines []string
+	for _, l := range lines {
+		lTrim := strings.TrimSpace(l)
+		if lTrim == "" {
+			continue
+		}
+		lower := strings.ToLower(lTrim)
+		if strings.Contains(lower, "fatal") ||
+			strings.Contains(lower, "level=error") ||
+			strings.Contains(lower, "[error]") ||
+			strings.Contains(lower, "core start failed") ||
+			strings.Contains(lower, "parse config error") ||
+			strings.Contains(lower, "not found") ||
+			strings.Contains(lower, "panic:") {
+			errLines = append(errLines, lTrim)
+		}
+	}
+	if len(errLines) > 0 {
+		if len(errLines) > 6 {
+			errLines = errLines[len(errLines)-6:]
+		}
+		return strings.Join(errLines, "\n")
+	}
+	// Fallback to last 6 lines of log
+	if len(lines) > 6 {
+		return strings.Join(lines[len(lines)-6:], "\n")
+	}
+	return logContent
+}
+
+// DiagnoseFatal quickly checks if there is an explicit fatal/panic in the latest log
+func (c *Client) DiagnoseFatal(ctx context.Context) string {
+	logContent, err := c.GetRecentOpenClashLog(ctx, 25)
+	if err != nil || strings.TrimSpace(logContent) == "" {
+		return ""
+	}
+	lines := strings.Split(logContent, "\n")
+	var fatalLines []string
+	for _, l := range lines {
+		lTrim := strings.TrimSpace(l)
+		if lTrim == "" {
+			continue
+		}
+		lower := strings.ToLower(lTrim)
+		if strings.Contains(lower, "fatal") ||
+			strings.Contains(lower, "core start failed") ||
+			strings.Contains(lower, "parse config error") ||
+			strings.Contains(lower, "panic:") {
+			fatalLines = append(fatalLines, lTrim)
+		}
+	}
+	if len(fatalLines) > 0 {
+		if len(fatalLines) > 4 {
+			fatalLines = fatalLines[len(fatalLines)-4:]
+		}
+		return strings.Join(fatalLines, "\n")
+	}
+	return ""
+}

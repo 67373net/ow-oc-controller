@@ -241,19 +241,8 @@ func (h *Handler) HandlePower(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("POWER", "未配置 OpenWrt SSH 凭证 (OPENWRT_SSH_PASS 为空)，仅切换 Clash 模式至 Rule")
 		}
 
-		// 2. Set Clash core mode to Rule (core may take 3-10s to bind port 9090)
-		go func() {
-			for attempt := 1; attempt <= 6; attempt++ {
-				time.Sleep(time.Duration(attempt*2) * time.Second)
-				bgCtx, bgCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := h.clash.SetMode(bgCtx, targetMode); err == nil {
-					h.log.Success("CLASH", "OpenClash 核心初始化完成，已自动激活 Rule 规则模式")
-					bgCancel()
-					return
-				}
-				bgCancel()
-			}
-		}()
+		// 2. Watch OpenClash startup health & bind mode
+		h.watchOpenClashStartup("POWER", targetMode, "OpenClash 核心初始化完成，已自动激活 Rule 规则模式")
 
 	} else {
 		h.log.Info("POWER", "触发停止操作: 正在关闭 OpenClash...")
@@ -332,6 +321,7 @@ func (h *Handler) SwitchProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		sshSuccess = true
 		h.log.Success("AIRPORT", fmt.Sprintf("已修改 OpenWrt 配置为 %s 并触发重启", safeName), out)
+		h.watchOpenClashStartup("AIRPORT", "Rule", fmt.Sprintf("机场 [%s] 切换完成，OpenClash 核心已成功上线", safeName))
 	} else {
 		// Only attempt reload via Clash Core API if SSH is NOT configured
 		h.log.Warn("AIRPORT", "OpenWrt SSH 凭证未配置，尝试通过 Clash API 热重载配置...")
@@ -982,5 +972,92 @@ func (h *Handler) InitEnv(w http.ResponseWriter, r *http.Request) {
 		"path":    envPath,
 	})
 }
+
+// watchOpenClashStartup monitors OpenClash startup, sets mode on success, or captures router logs on failure
+func (h *Handler) watchOpenClashStartup(source string, targetMode string, successMsg string) {
+	go func() {
+		// Wait 2.5 seconds initially for OpenWrt init script to start background daemon
+		time.Sleep(2500 * time.Millisecond)
+
+		const maxAttempts = 10
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			// 1. Check if Clash core is already responding
+			bgCtx, bgCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			ver, err := h.clash.GetVersion(bgCtx)
+			if err == nil && ver != nil {
+				// Core is up! Apply mode
+				_ = h.clash.SetMode(bgCtx, targetMode)
+				h.log.Success("CLASH", successMsg)
+				bgCancel()
+				return
+			}
+			bgCancel()
+
+			// 2. If SSH is configured and we've waited >= 4.5s (attempt >= 2)
+			if h.openwrt.IsConfigured() && attempt >= 2 {
+				diagCtx, diagCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				running, runErr := h.openwrt.IsOpenClashRunning(diagCtx)
+				if runErr == nil && !running {
+					// OpenClash process is dead/stopped!
+					diag := h.openwrt.DiagnoseFailure(diagCtx)
+					diagCancel()
+					if diag != "" {
+						h.log.Error("OPENCLASH", "OpenClash 核心启动失败并已退出，请检查配置", diag)
+					} else {
+						h.log.Error("OPENCLASH", "OpenClash 核心启动失败，进程未在运行", "请检查 OpenWrt 系统状态及 /tmp/openclash.log")
+					}
+					return
+				}
+
+				// Check if there is an explicit fatal/panic in the latest log even if still stopping
+				if fatalMsg := h.openwrt.DiagnoseFatal(diagCtx); fatalMsg != "" {
+					diagCancel()
+					h.log.Error("OPENCLASH", "OpenClash 核心启动发生致命错误", fatalMsg)
+					return
+				}
+				diagCancel()
+			}
+
+			time.Sleep(2 * time.Second)
+		}
+
+		// Reached timeout (20+ seconds) without online
+		if h.openwrt.IsConfigured() {
+			diagCtx, diagCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			diag := h.openwrt.DiagnoseFailure(diagCtx)
+			diagCancel()
+			if diag != "" {
+				h.log.Error("OPENCLASH", "OpenClash 启动超时 (20秒内未上线)", diag)
+			} else {
+				h.log.Error("OPENCLASH", "OpenClash 启动超时", "Clash 核心外部控制端口(9090)未响应，请检查 OpenWrt 状态")
+			}
+		} else {
+			h.log.Error("CLASH", "Clash 核心启动超时", "外部控制端口(9090)在 20 秒内未响应")
+		}
+	}()
+}
+
+// GetOpenClashLog returns recent log lines from OpenWrt router's /tmp/openclash.log
+func (h *Handler) GetOpenClashLog(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if !h.openwrt.IsConfigured() {
+		h.writeError(w, http.StatusBadRequest, "OpenWrt SSH 未配置，无法读取路由器底层日志")
+		return
+	}
+
+	content, err := h.openwrt.GetRecentOpenClashLog(ctx, 120)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "获取 OpenClash 日志失败: "+err.Error())
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"content": content,
+	})
+}
+
 
 

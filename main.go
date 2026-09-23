@@ -85,6 +85,7 @@ func main() {
 	mux.HandleFunc("POST /api/connections/clear", apiHandler.ClearConnections)
 	mux.HandleFunc("GET /api/logs", apiHandler.GetLogs)
 	mux.HandleFunc("POST /api/logs/clear", apiHandler.ClearLogs)
+	mux.HandleFunc("GET /api/openwrt/openclash-log", apiHandler.GetOpenClashLog)
 	mux.HandleFunc("GET /api/env", apiHandler.GetEnv)
 	mux.HandleFunc("POST /api/env", apiHandler.SaveEnv)
 	mux.HandleFunc("POST /api/env/init", apiHandler.InitEnv)

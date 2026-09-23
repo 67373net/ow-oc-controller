@@ -2047,3 +2047,21 @@ body {
   color: var(--text-primary);
 }
 
+.router-log-terminal {
+  background-color: #0d1117;
+  color: #e6edf3;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+  border: 1px solid var(--border-color);
+  margin: 0;
+}
+

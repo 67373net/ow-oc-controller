@@ -270,6 +270,10 @@
               </label>
             </div>
 
+            <button class="btn-action" id="btn-router-log" title="读取 OpenWrt 路由器上的 OpenClash 原始运行日志">
+              <span>路由器日志</span>
+            </button>
+
             <button class="btn-action" id="btn-export-logs">
               <span>导出</span>
             </button>
@@ -414,6 +418,31 @@
             <button class="btn-action btn-primary-action" id="btn-save-speed-config" type="button">保存</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Router OpenClash Logs -->
+  <div class="modal-overlay" id="modal-router-log" style="display: none;">
+    <div class="modal-dialog" style="max-width: 800px;">
+      <div class="modal-header">
+        <h3 class="modal-title">OpenClash 路由器运行日志</h3>
+        <button class="btn-modal-close" id="btn-close-router-log-modal">关闭</button>
+      </div>
+
+      <div class="modal-body" style="padding: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; flex-wrap: wrap;">
+          <span style="font-size: 13px; color: var(--text-muted);">直接读取 OpenWrt 本地最新运行日志 (/tmp/openclash.log)</span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-action" id="btn-refresh-router-log" type="button"><span>刷新</span></button>
+            <button class="btn-action" id="btn-copy-router-log" type="button"><span>复制</span></button>
+          </div>
+        </div>
+        <pre class="router-log-terminal" id="router-log-content">正在读取日志...</pre>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Global Mode Confirmation for Subscription Download -->
   <div class="modal-overlay" id="modal-global-confirm" style="display: none;">
     <div class="modal-dialog" style="max-width: 560px;">

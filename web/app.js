@@ -191,6 +191,30 @@ function setupEventListeners() {
     btnExportLogs.addEventListener('click', handleExportLogs);
   }
 
+  // Router OpenClash log modal triggers
+  const btnRouterLog = document.getElementById('btn-router-log');
+  if (btnRouterLog) {
+    btnRouterLog.addEventListener('click', openRouterLogModal);
+  }
+  const btnCloseRouterLog = document.getElementById('btn-close-router-log-modal');
+  if (btnCloseRouterLog) {
+    btnCloseRouterLog.addEventListener('click', closeRouterLogModal);
+  }
+  const modalRouterLog = document.getElementById('modal-router-log');
+  if (modalRouterLog) {
+    modalRouterLog.addEventListener('click', (e) => {
+      if (e.target === modalRouterLog) closeRouterLogModal();
+    });
+  }
+  const btnRefreshRouterLog = document.getElementById('btn-refresh-router-log');
+  if (btnRefreshRouterLog) {
+    btnRefreshRouterLog.addEventListener('click', fetchRouterOpenClashLog);
+  }
+  const btnCopyRouterLog = document.getElementById('btn-copy-router-log');
+  if (btnCopyRouterLog) {
+    btnCopyRouterLog.addEventListener('click', handleCopyRouterLog);
+  }
+
   // Log auto-refresh toggle
   const logAutoRefreshCheck = document.getElementById('log-auto-refresh-check');
   if (logAutoRefreshCheck) {
@@ -1181,6 +1205,50 @@ function handleExportLogs() {
 }
 
 // ----------------------------------------------------
+// Router OpenClash Logs Modal Actions
+// ----------------------------------------------------
+async function openRouterLogModal() {
+  const modal = document.getElementById('modal-router-log');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  await fetchRouterOpenClashLog();
+}
+
+function closeRouterLogModal() {
+  const modal = document.getElementById('modal-router-log');
+  if (modal) modal.style.display = 'none';
+}
+
+async function fetchRouterOpenClashLog() {
+  const term = document.getElementById('router-log-content');
+  if (!term) return;
+  term.textContent = '正在通过 SSH 读取 OpenWrt 路由器本地日志 (/tmp/openclash.log)...';
+
+  try {
+    const res = await fetch('/api/openwrt/openclash-log');
+    const data = await res.json();
+    if (data.success && data.content) {
+      term.textContent = data.content;
+      term.scrollTop = term.scrollHeight;
+    } else {
+      term.textContent = data.error || '未能获取到日志（可能 OpenClash 尚未运行或 SSH 未配置）';
+    }
+  } catch (err) {
+    term.textContent = '请求异常: ' + err.message;
+  }
+}
+
+function handleCopyRouterLog() {
+  const term = document.getElementById('router-log-content');
+  if (!term || !term.textContent) return;
+  navigator.clipboard.writeText(term.textContent).then(() => {
+    showToast('路由器日志已复制到剪贴板');
+  }).catch(() => {
+    showToast('复制失败，请手动选择文本复制');
+  });
+}
+
+// ----------------------------------------------------
 // User Actions
 // ----------------------------------------------------
 async function handlePowerToggle() {
@@ -1241,6 +1309,9 @@ async function handlePowerToggle() {
       state.isPowerTransitioning = false;
       updateStatusUI();
       await fetchProxies();
+      if (!isTargetReached && targetAction === 'enable') {
+        showToast('启动超时或未就绪，请在“系统日志”中查看具体错误');
+      }
     } else {
       setTimeout(pollTransition, 1500);
     }
@@ -1312,7 +1383,11 @@ async function switchAirportProfile(filename, name) {
     updateStatusUI();
     await fetchProxies();
     await fetchProfiles();
-    showToast(`机场 [${name}] 载入完成`);
+    if (state.status?.clash_online) {
+      showToast(`机场 [${name}] 载入完成`);
+    } else {
+      showToast(`机场 [${name}] 重载后核心未上线，请在“系统日志”中查看具体报错`);
+    }
   };
 
   // Watchdog timer: max 15 seconds to prevent ever hanging
