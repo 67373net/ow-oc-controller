@@ -13,6 +13,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// ModernClashUA is the universally accepted modern Clash/Meta User-Agent
+const ModernClashUA = "clash-verge/v1.7.7 (Mihomo/v1.18.10) ClashMeta/v1.18.10"
+
 type Client struct {
 	addr      string
 	user      string
@@ -253,7 +256,7 @@ func (c *Client) DownloadProfile(ctx context.Context, filename, subURL string) (
 		safeName += ".yaml"
 	}
 
-	cmd := fmt.Sprintf("curl -sL -k -m 60 -H 'User-Agent: Clash/1.18.0' -o '/etc/openclash/config/%s' '%s' 2>&1", safeName, subURL)
+	cmd := fmt.Sprintf("curl -sL -k -m 60 -H 'User-Agent: %s' -o '/etc/openclash/config/%s' '%s' 2>&1", ModernClashUA, safeName, subURL)
 	return c.RunCommand(ctx, cmd)
 }
 

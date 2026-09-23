@@ -24,6 +24,9 @@ import (
 	"github.com/67373net/ow-oc-controller/internal/openwrt"
 )
 
+// ModernClashUA is the universally accepted modern Clash/Meta User-Agent
+const ModernClashUA = "clash-verge/v1.7.7 (Mihomo/v1.18.10) ClashMeta/v1.18.10"
+
 // Item represents a subscription or profile configuration
 type Item struct {
 	Name      string `json:"name"`
@@ -419,7 +422,7 @@ func downloadViaHTTP(ctx context.Context, subURL string, proxyURLStr string, tim
 		return nil, nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "Clash/1.18.0 (ClashMeta/v1.18.0)")
+	req.Header.Set("User-Agent", ModernClashUA)
 	req.Header.Set("Accept", "*/*")
 
 	transport := &http.Transport{
@@ -514,14 +517,52 @@ func parseCurlResponse(data []byte) ([]byte, http.Header, error) {
 	return body, lastHeaders, nil
 }
 
-func ensureClashFlag(subURL string) string {
-	if strings.Contains(subURL, "flag=") {
+func ensureSubscriptionFlag(subURL string) string {
+	if strings.Contains(subURL, "flag=") || strings.Contains(subURL, "target=") {
 		return subURL
 	}
 	if strings.Contains(subURL, "?") {
-		return subURL + "&flag=clash"
+		return subURL + "&flag=meta"
 	}
-	return subURL + "?flag=clash"
+	return subURL + "?flag=meta"
+}
+
+func withMetaFlag(subURL string) string {
+	if strings.Contains(subURL, "flag=clash") {
+		return strings.Replace(subURL, "flag=clash", "flag=meta", 1)
+	}
+	if strings.Contains(subURL, "flag=meta") {
+		return subURL
+	}
+	if strings.Contains(subURL, "?") {
+		return subURL + "&flag=meta"
+	}
+	return subURL + "?flag=meta"
+}
+
+// isPoisonedNoticeContent checks if the content is a dummy notice node like "不支持您的代理软件"
+func isPoisonedNoticeContent(content []byte) bool {
+	if len(content) == 0 {
+		return false
+	}
+	contentStr := string(content)
+	keywords := []string{
+		"不支持您的代理软件",
+		"不支持该代理软件",
+		"不支持该客户端",
+		"请使用 Clash Verge",
+		"请使用Clash Verge",
+		"请使用 Mihomo",
+		"请使用Mihomo",
+		"请更新客户端",
+		"客户端版本过低",
+	}
+	for _, kw := range keywords {
+		if strings.Contains(contentStr, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // withGlobalProxy temporarily switches Clash core mode to "Global" and ensures an active proxy node/group
@@ -617,7 +658,7 @@ func (m *Manager) downloadViaSSH(ctx context.Context, subURL string, proxyPort i
 	proxiesStr := "'" + strings.Join(proxies, "' '") + "'"
 
 	cmd := fmt.Sprintf(`URL='%s'
-UA='Clash/1.18.0 (ClashMeta/v1.18.0)'
+UA='clash-verge/v1.7.7 (Mihomo/v1.18.10) ClashMeta/v1.18.10'
 for p in %s; do
   out=$(curl -sL -k -m 10 -x "$p" -H "User-Agent: $UA" -H "Accept: */*" -i "$URL" 2>/dev/null)
   if echo "$out" | grep -q 'HTTP/[123]'; then
@@ -635,8 +676,8 @@ exit 1`, escapedURL, proxiesStr)
 	return parseCurlResponse([]byte(out))
 }
 
-func (m *Manager) download(ctx context.Context, subURL string, allowGlobal bool) ([]byte, http.Header, error) {
-	subURL = ensureClashFlag(subURL)
+// downloadAttempt executes the multi-strategy download ladder for a given URL
+func (m *Manager) downloadAttempt(ctx context.Context, subURL string, allowGlobal bool) ([]byte, http.Header, error) {
 	var errs []string
 
 	// Strategy 0: Custom SUBSCRIPTION_PROXY if configured
@@ -756,6 +797,46 @@ func (m *Manager) download(ctx context.Context, subURL string, allowGlobal bool)
 	return nil, nil, fmt.Errorf("所有下载方式均失败: %s", strings.Join(errs, "; "))
 }
 
+// download wraps downloadAttempt with smart auto-healing and strict safety verification
+func (m *Manager) download(ctx context.Context, subURL string, allowGlobal bool) ([]byte, http.Header, error) {
+	targetURL := ensureSubscriptionFlag(subURL)
+	body, header, err := m.downloadAttempt(ctx, targetURL, allowGlobal)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Safety check: Detect if airport returned dummy warning node like "不支持您的代理软件"
+	if isPoisonedNoticeContent(body) {
+		m.log.Warn("SUBSCRIPTION", "检测到机场返回了【不支持您的代理软件】提示节点，正在自动切换为 Meta/Mihomo 协议自愈重试...")
+
+		// Attempt 1: Try with flag=meta
+		metaURL := withMetaFlag(subURL)
+		if metaURL != targetURL {
+			retryBody, retryHeader, retryErr := m.downloadAttempt(ctx, metaURL, allowGlobal)
+			if retryErr == nil && !isPoisonedNoticeContent(retryBody) {
+				m.log.Success("SUBSCRIPTION", "自愈成功！已通过 flag=meta 协议成功获取到全量真实节点配置")
+				return retryBody, retryHeader, nil
+			}
+		}
+
+		// Attempt 2: Try with flag=clash.meta
+		altURL := strings.Replace(metaURL, "flag=meta", "flag=clash.meta", 1)
+		if altURL != metaURL {
+			retryBody, retryHeader, retryErr := m.downloadAttempt(ctx, altURL, allowGlobal)
+			if retryErr == nil && !isPoisonedNoticeContent(retryBody) {
+				m.log.Success("SUBSCRIPTION", "自愈成功！已通过 flag=clash.meta 协议成功获取到全量真实节点配置")
+				return retryBody, retryHeader, nil
+			}
+		}
+
+		// If still poisoned, absolute guard: do NOT return poisoned content!
+		m.log.Error("SUBSCRIPTION", "机场拒绝下发真实节点", "机场服务器持续下发【不支持您的代理软件】提示，未能获取到有效代理节点。系统已自动拦截，拒绝覆盖路由器配置文件。")
+		return nil, header, fmt.Errorf("机场服务器下发了【不支持您的代理软件】提示（未能获取到有效代理节点），系统已自动拦截以保护 OpenClash 正常配置")
+	}
+
+	return body, header, nil
+}
+
 // Add downloads a new subscription and syncs to OpenWrt
 func (m *Manager) Add(ctx context.Context, name, subURL string, allowGlobal bool) (*Item, error) {
 	subURL = strings.TrimSpace(subURL)
@@ -781,6 +862,11 @@ func (m *Manager) Add(ctx context.Context, name, subURL string, allowGlobal bool
 	if cleanName == "" {
 		cleanName = fmt.Sprintf("sub_%d", time.Now().Unix()%10000)
 		filename = cleanName + ".yaml"
+	}
+
+	if isPoisonedNoticeContent(content) {
+		m.log.Error("SUBSCRIPTION", "拦截同步", "配置文件包含【不支持您的代理软件】提示节点，已拒绝写入 OpenWrt 以免核心崩溃")
+		return nil, fmt.Errorf("配置文件包含【不支持您的代理软件】提示节点，已拒绝写入 OpenWrt 以免核心崩溃")
 	}
 
 	// Parse subscription userinfo for usage
@@ -889,6 +975,11 @@ func (m *Manager) Update(ctx context.Context, nameOrFile string, allowGlobal boo
 	localPath := filepath.Join(m.localDir, filename)
 	_ = os.WriteFile(localPath, content, 0644)
 
+	if isPoisonedNoticeContent(content) {
+		m.log.Error("SUBSCRIPTION", "拦截更新", fmt.Sprintf("下载内容包含【不支持您的代理软件】提示节点，已拒绝写入 OpenWrt: %s", filename))
+		return nil, fmt.Errorf("下载内容包含【不支持您的代理软件】提示节点，已拒绝覆盖 OpenWrt 现有配置文件")
+	}
+
 	// Sync to OpenWrt
 	if m.openwrt.IsConfigured() {
 		remotePath := fmt.Sprintf("/etc/openclash/config/%s", filename)
@@ -939,6 +1030,11 @@ func (m *Manager) Upload(ctx context.Context, filename string, content []byte) (
 	localPath := filepath.Join(m.localDir, cleanFile)
 	if err := os.WriteFile(localPath, content, 0644); err != nil {
 		m.log.Warn("SUBSCRIPTION", fmt.Sprintf("本地缓存文件写入失败: %v", err))
+	}
+
+	if isPoisonedNoticeContent(content) {
+		m.log.Error("SUBSCRIPTION", "拦截上传", fmt.Sprintf("上传的文件包含【不支持您的代理软件】提示节点，已拒绝写入 OpenWrt: %s", cleanFile))
+		return nil, fmt.Errorf("上传的文件包含【不支持您的代理软件】提示节点，已拒绝写入 OpenWrt 以免核心崩溃")
 	}
 
 	// Sync to OpenWrt /etc/openclash/config/
