@@ -1059,5 +1059,69 @@ func (h *Handler) GetOpenClashLog(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CustomLink represents a user-defined external hyperlink
+type CustomLink struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+func getCustomLinksFilePath() string {
+	if _, err := os.Stat("data"); err == nil {
+		return filepath.Join("data", "custom_links.json")
+	}
+	return "custom_links.json"
+}
+
+// GetCustomLinks returns configured custom hyperlinks
+func (h *Handler) GetCustomLinks(w http.ResponseWriter, r *http.Request) {
+	filePath := getCustomLinksFilePath()
+	var links []CustomLink
+
+	if data, err := os.ReadFile(filePath); err == nil {
+		_ = json.Unmarshal(data, &links)
+	}
+	if links == nil {
+		links = []CustomLink{}
+	}
+
+	h.writeJSON(w, http.StatusOK, links)
+}
+
+// SaveCustomLinks persists the list of custom hyperlinks
+func (h *Handler) SaveCustomLinks(w http.ResponseWriter, r *http.Request) {
+	var links []CustomLink
+	if err := json.NewDecoder(r.Body).Decode(&links); err != nil {
+		h.writeError(w, http.StatusBadRequest, "无效的 JSON 请求: "+err.Error())
+		return
+	}
+
+	if links == nil {
+		links = []CustomLink{}
+	}
+
+	filePath := getCustomLinksFilePath()
+	dir := filepath.Dir(filePath)
+	if dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0755)
+	}
+
+	data, err := json.MarshalIndent(links, "", "  ")
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, "序列化自定义链接失败: "+err.Error())
+		return
+	}
+
+	if err := os.WriteFile(filePath, data, 0666); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "保存自定义链接失败: "+err.Error())
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"links":   links,
+	})
+}
+
 
 

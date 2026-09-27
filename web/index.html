@@ -29,6 +29,31 @@
           <span>环境变量</span>
         </button>
       </nav>
+
+      <!-- Custom Links Dropdown ("其他") -->
+      <div class="nav-dropdown" id="nav-other-dropdown">
+        <button type="button" class="nav-dropdown-btn" id="btn-nav-other" aria-expanded="false" aria-haspopup="true" title="常用快捷链接">
+          <span>其他</span>
+          <svg class="dropdown-chevron" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 6l4 4 4-4"/>
+          </svg>
+        </button>
+        <div class="nav-dropdown-menu" id="nav-other-menu">
+          <div class="dropdown-header">
+            <span class="dropdown-header-title">常用网址导航</span>
+          </div>
+          <div class="dropdown-links-list" id="custom-links-list">
+            <!-- Dynamically populated -->
+          </div>
+          <div class="dropdown-divider"></div>
+          <button type="button" class="dropdown-add-btn" id="btn-open-add-link">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M8 3v10M3 8h10"/>
+            </svg>
+            <span>添加链接</span>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -475,6 +500,41 @@
           <button class="btn-action" id="btn-cancel-global-confirm" type="button">取消</button>
           <button class="btn-action btn-primary-action" id="btn-approve-global-confirm" type="button">允许并继续出海下载</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Custom Link Add / Edit -->
+  <div class="modal-overlay" id="modal-custom-link" style="display: none;">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-link-heading">添加超链接</h3>
+        <button class="btn-modal-close" id="btn-close-link-modal">关闭</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px;">
+        <form id="form-custom-link" onsubmit="return false;">
+          <input type="hidden" id="input-link-id" value="" />
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="input-link-title" style="font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-primary);">
+              链接标题 <span style="color: var(--danger-color);">*</span>
+            </label>
+            <input type="text" id="input-link-title" placeholder="例如: 路由器后台、AdGuard Home、NAS" maxlength="40" required autocomplete="off" />
+          </div>
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label for="input-link-url" style="font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-primary);">
+              跳转网址 (URL) <span style="color: var(--danger-color);">*</span>
+            </label>
+            <input type="text" id="input-link-url" placeholder="例如: 192.168.1.1 或 http://192.168.1.1:8080" required autocomplete="off" />
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
+              支持 IP 地址或域名。若未填写 http:// 或 https:// 前缀，将自动补齐 http://
+            </div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+            <button type="button" class="btn-action" id="btn-cancel-link">取消</button>
+            <button type="button" class="btn-action btn-primary-action" id="btn-save-link">保存</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

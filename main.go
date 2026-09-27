@@ -89,6 +89,8 @@ func main() {
 	mux.HandleFunc("GET /api/env", apiHandler.GetEnv)
 	mux.HandleFunc("POST /api/env", apiHandler.SaveEnv)
 	mux.HandleFunc("POST /api/env/init", apiHandler.InitEnv)
+	mux.HandleFunc("GET /api/custom-links", apiHandler.GetCustomLinks)
+	mux.HandleFunc("POST /api/custom-links", apiHandler.SaveCustomLinks)
 	mux.HandleFunc("GET /api/health", apiHandler.HealthCheck)
 
 	// Embedded static web frontend

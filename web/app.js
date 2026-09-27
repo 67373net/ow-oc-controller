@@ -40,12 +40,15 @@ const state = {
   lastViewedErrorId: localStorage.getItem('last_viewed_error_id') !== null
     ? parseInt(localStorage.getItem('last_viewed_error_id'), 10)
     : null,
+  customLinks: [],
+  isLinkModalOpen: false,
 };
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   renderSpeedGrid();
+  loadCustomLinks();
   setupEventListeners();
   setupInactiveOptimization();
   
@@ -150,6 +153,10 @@ function setupEventListeners() {
     const wrap = document.getElementById('airport-custom-select-wrap');
     if (wrap && !wrap.contains(e.target)) {
       closeAirportDropdown();
+    }
+    const otherWrap = document.getElementById('nav-other-dropdown');
+    if (otherWrap && !otherWrap.contains(e.target)) {
+      toggleOtherDropdown(false);
     }
   });
 
@@ -342,8 +349,81 @@ function setupEventListeners() {
       closeSubModal();
       closeSpeedConfigModal();
       closeGlobalConfirmModal();
+      toggleOtherDropdown(false);
+      closeLinkModal();
     }
   });
+
+  // Custom Links ("其他") Dropdown & Modal Listeners
+  const btnNavOther = document.getElementById('btn-nav-other');
+  if (btnNavOther) {
+    btnNavOther.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleOtherDropdown();
+    });
+  }
+
+  const btnOpenAddLink = document.getElementById('btn-open-add-link');
+  if (btnOpenAddLink) {
+    btnOpenAddLink.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openLinkModal('');
+    });
+  }
+
+  const btnCloseLinkModal = document.getElementById('btn-close-link-modal');
+  if (btnCloseLinkModal) {
+    btnCloseLinkModal.addEventListener('click', closeLinkModal);
+  }
+
+  const btnCancelLink = document.getElementById('btn-cancel-link');
+  if (btnCancelLink) {
+    btnCancelLink.addEventListener('click', closeLinkModal);
+  }
+
+  const modalCustomLink = document.getElementById('modal-custom-link');
+  if (modalCustomLink) {
+    modalCustomLink.addEventListener('click', (e) => {
+      if (e.target === modalCustomLink) closeLinkModal();
+    });
+  }
+
+  const btnSaveLink = document.getElementById('btn-save-link');
+  if (btnSaveLink) {
+    btnSaveLink.addEventListener('click', handleSaveCustomLink);
+  }
+
+  const formCustomLink = document.getElementById('form-custom-link');
+  if (formCustomLink) {
+    formCustomLink.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleSaveCustomLink();
+    });
+  }
+
+  const customLinksList = document.getElementById('custom-links-list');
+  if (customLinksList) {
+    customLinksList.addEventListener('click', (e) => {
+      const editBtn = e.target.closest('.btn-link-edit');
+      if (editBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        openLinkModal(editBtn.dataset.id);
+        return;
+      }
+      const delBtn = e.target.closest('.btn-link-del');
+      if (delBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleDeleteCustomLink(delBtn.dataset.id);
+        return;
+      }
+      const linkWrap = e.target.closest('.dropdown-link-title-wrap');
+      if (linkWrap) {
+        toggleOtherDropdown(false);
+      }
+    });
+  }
 
   // Connection search input (with 300ms debounce)
   const connSearch = document.getElementById('conn-search');
@@ -2319,5 +2399,203 @@ window.handleSaveEnv = handleSaveEnv;
 window.handleInitEnv = handleInitEnv;
 window.handleReloadEnv = handleReloadEnv;
 
+// ====================================================
+// Custom Links ("其他" Dropdown) Logic
+// ====================================================
 
+function initCustomLinksState() {
+  try {
+    const cached = localStorage.getItem('ow_custom_links');
+    if (cached) {
+      state.customLinks = JSON.parse(cached);
+    }
+  } catch (e) {
+    state.customLinks = [];
+  }
+}
 
+async function loadCustomLinks() {
+  initCustomLinksState();
+  renderCustomLinks();
+
+  try {
+    const res = await fetch('/api/custom-links');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        state.customLinks = data;
+        try {
+          localStorage.setItem('ow_custom_links', JSON.stringify(data));
+        } catch (e) {}
+        renderCustomLinks();
+      }
+    }
+  } catch (err) {
+    console.debug('Failed to fetch custom links from backend, using local cache:', err);
+  }
+}
+
+async function saveCustomLinks(links) {
+  state.customLinks = links;
+  try {
+    localStorage.setItem('ow_custom_links', JSON.stringify(links));
+  } catch (e) {}
+  renderCustomLinks();
+
+  try {
+    await fetch('/api/custom-links', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(links),
+    });
+  } catch (err) {
+    console.warn('Failed to sync custom links to server:', err);
+  }
+}
+
+function extractHostname(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.host || url;
+  } catch (e) {
+    return url.replace(/^https?:\/\//i, '').split('/')[0] || url;
+  }
+}
+
+function renderCustomLinks() {
+  const container = document.getElementById('custom-links-list');
+  if (!container) return;
+
+  const links = state.customLinks || [];
+  if (links.length === 0) {
+    container.innerHTML = '<div class="dropdown-empty-state">暂无自定义链接，点击下方添加</div>';
+    return;
+  }
+
+  container.innerHTML = links.map(link => `
+    <div class="dropdown-link-row" data-id="${escapeHTML(link.id)}">
+      <a href="${escapeHTML(link.url)}" target="_blank" rel="noopener noreferrer" class="dropdown-link-title-wrap" title="${escapeHTML(link.title)} (${escapeHTML(link.url)})">
+        <svg class="dropdown-link-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 2h4v4M14 2L7 9M6 3H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3"/>
+        </svg>
+        <span class="dropdown-link-name">${escapeHTML(link.title)}</span>
+        <span class="dropdown-link-domain">${escapeHTML(extractHostname(link.url))}</span>
+      </a>
+      <div class="dropdown-link-ops">
+        <button type="button" class="btn-link-op btn-link-edit" title="编辑链接" data-id="${escapeHTML(link.id)}">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11.5 2.5a2.121 2.121 0 0 1 3 3L5 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+        </button>
+        <button type="button" class="btn-link-op btn-link-del" title="删除链接" data-id="${escapeHTML(link.id)}">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4l8 8M12 4L4 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleOtherDropdown(force) {
+  const dropdown = document.getElementById('nav-other-dropdown');
+  const btn = document.getElementById('btn-nav-other');
+  if (!dropdown || !btn) return;
+
+  const isOpen = force !== undefined ? force : !dropdown.classList.contains('open');
+  dropdown.classList.toggle('open', isOpen);
+  btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+}
+
+function openLinkModal(linkId = '') {
+  toggleOtherDropdown(false);
+  const modal = document.getElementById('modal-custom-link');
+  const heading = document.getElementById('modal-link-heading');
+  const idInput = document.getElementById('input-link-id');
+  const titleInput = document.getElementById('input-link-title');
+  const urlInput = document.getElementById('input-link-url');
+  if (!modal || !titleInput || !urlInput) return;
+
+  if (linkId) {
+    const existing = (state.customLinks || []).find(l => l.id === linkId);
+    if (existing) {
+      if (heading) heading.textContent = '编辑超链接';
+      if (idInput) idInput.value = existing.id;
+      titleInput.value = existing.title || '';
+      urlInput.value = existing.url || '';
+    }
+  } else {
+    if (heading) heading.textContent = '添加超链接';
+    if (idInput) idInput.value = '';
+    titleInput.value = '';
+    urlInput.value = '';
+  }
+
+  modal.style.display = 'flex';
+  state.isLinkModalOpen = true;
+  setTimeout(() => titleInput.focus(), 50);
+}
+
+function closeLinkModal() {
+  const modal = document.getElementById('modal-custom-link');
+  if (modal) modal.style.display = 'none';
+  state.isLinkModalOpen = false;
+}
+
+function handleSaveCustomLink() {
+  const idInput = document.getElementById('input-link-id');
+  const titleInput = document.getElementById('input-link-title');
+  const urlInput = document.getElementById('input-link-url');
+  if (!titleInput || !urlInput) return;
+
+  const title = titleInput.value.trim();
+  let url = urlInput.value.trim();
+
+  if (!title) {
+    showToast('请输入链接标题');
+    titleInput.focus();
+    return;
+  }
+  if (!url) {
+    showToast('请输入跳转网址 (URL)');
+    urlInput.focus();
+    return;
+  }
+
+  // Prepend http:// if protocol is missing
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'http://' + url;
+  }
+
+  const linkId = idInput?.value?.trim();
+  const links = [...(state.customLinks || [])];
+
+  if (linkId) {
+    const idx = links.findIndex(l => l.id === linkId);
+    if (idx !== -1) {
+      links[idx] = { ...links[idx], title, url };
+      showToast(`已更新链接: ${title}`);
+    }
+  } else {
+    const newId = 'link_' + Date.now();
+    links.push({ id: newId, title, url });
+    showToast(`已添加链接: ${title}`);
+  }
+
+  saveCustomLinks(links);
+  closeLinkModal();
+}
+
+function handleDeleteCustomLink(linkId) {
+  const links = state.customLinks || [];
+  const target = links.find(l => l.id === linkId);
+  const targetName = target ? target.title : '链接';
+
+  const newLinks = links.filter(l => l.id !== linkId);
+  saveCustomLinks(newLinks);
+  showToast(`已删除链接: ${targetName}`);
+}
+
+window.toggleOtherDropdown = toggleOtherDropdown;
+window.openLinkModal = openLinkModal;
+window.closeLinkModal = closeLinkModal;
