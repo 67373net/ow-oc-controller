@@ -180,6 +180,13 @@
   - **多端同步与双层持久化存储**：实现后端 `/api/custom-links` REST API 并挂载持久化于 `data/custom_links.json`，多端设备共享；同时集成前端 `localStorage` 双重缓存保障即时秒开。
   - **完整生命周期管理**：提供「添加超链接」与「编辑超链接」模态弹窗，智能解析补齐 `http://` 协议前缀，支持一键打开新标签页、直接编辑以及删除。
 
+### 📅 对话纪元 24：集成 OpenClash 官方图标与全平台 Favicon
+- **需求目标**：网页与浏览器标签页此前缺少图标，集成 OpenClash 原生品牌视觉图标。
+- **技术实现**：
+  - **高清官方 Logo 引入**：引入 OpenClash 官方 512x512 经典蓝猫透明高清图标 (`web/logo.png`)。
+  - **顶栏品牌标识**：在页面顶部导航左侧标题前加入微动画交互的 OpenClash 图标，并适配手机端响应式缩放。
+  - **全平台 Favicon 规范**：配置 `<link rel="icon">`、`<link rel="shortcut icon">` 以及 `<link rel="apple-touch-icon">`，生成支持 16/32/48/64 多尺寸的原生 `favicon.ico`，使浏览器标签页、书签栏与移动端主屏幕快捷方式均能清晰显示 OpenClash 原生图标。
+
 ---
 
 ## 3. 安全合规与开源发布说明

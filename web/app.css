@@ -159,7 +159,22 @@ body {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.app-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: transform 0.2s ease;
+  user-select: none;
+}
+
+.header-left:hover .app-logo {
+  transform: scale(1.06);
 }
 
 .app-title {
@@ -278,6 +293,10 @@ body {
 @media (max-width: 650px) {
   .app-header {
     padding: 0 12px;
+  }
+  .app-logo {
+    width: 22px;
+    height: 22px;
   }
   .header-container {
     gap: 8px;
