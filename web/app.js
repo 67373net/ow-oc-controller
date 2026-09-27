@@ -2285,7 +2285,7 @@ async function handleTestWebSpeed() {
 }
 
 // ----------------------------------------------------
-// Network Speed Relative Time Display (x秒前 / x分钟前 / x小时前)
+// Network Speed Relative Time Display (刚刚, 10秒, 20秒... 1分, 2分... 1小时, 2小时... 1天, 2天...)
 // ----------------------------------------------------
 function formatTimeAgo(timestamp) {
   if (!timestamp) return '';
@@ -2296,18 +2296,19 @@ function formatTimeAgo(timestamp) {
     return '刚刚';
   }
   if (diffSec < 60) {
-    return `${diffSec}秒前`;
+    const tens = Math.floor(diffSec / 10) * 10;
+    return `${tens}秒`;
   }
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) {
-    return `${diffMin}分钟前`;
+    return `${diffMin}分`;
   }
   const diffHour = Math.floor(diffMin / 60);
   if (diffHour < 24) {
-    return `${diffHour}小时前`;
+    return `${diffHour}小时`;
   }
   const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}天前`;
+  return `${diffDay}天`;
 }
 
 function updateSpeedTimeAgo() {
