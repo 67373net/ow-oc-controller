@@ -184,6 +184,48 @@ body {
   white-space: nowrap;
 }
 
+/* Header Right: GitHub Repository Link */
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  height: 31px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.header-github-link:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+.header-github-link .github-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+
+.header-github-link:hover .github-icon {
+  color: var(--text-primary);
+}
+
 /* Status Pill Placed completely outside the main nav box */
 .header-status-wrapper {
   margin-left: auto;
@@ -324,6 +366,13 @@ body {
     padding: 4px 8px;
     font-size: 12px;
     height: 28px;
+  }
+  .header-github-link {
+    padding: 4px 7px;
+    height: 28px;
+  }
+  .header-github-link .github-link-text {
+    display: none;
   }
   .overview-section {
     grid-template-columns: 1fr;
