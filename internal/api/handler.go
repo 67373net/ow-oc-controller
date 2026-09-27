@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/67373net/ow-oc-controller/internal/clash"
@@ -537,6 +538,115 @@ func (h *Handler) TestDelay(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{
 		"results": results,
 	})
+}
+
+type NetworkSpeedTarget struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
+}
+
+type NetworkSpeedRequest struct {
+	Targets []NetworkSpeedTarget `json:"targets"`
+}
+
+type NetworkSpeedResult struct {
+	Delay  int    `json:"delay"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// TestNetworkSpeed tests target website connectivity directly from the host machine
+func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
+	var req NetworkSpeedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Targets) == 0 {
+		req.Targets = []NetworkSpeedTarget{
+			{ID: "target_0", URL: "https://www.baidu.com"},
+			{ID: "target_1", URL: "https://www.bilibili.com"},
+			{ID: "target_2", URL: "https://www.google.com/generate_204"},
+			{ID: "target_3", URL: "https://www.youtube.com/generate_204"},
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	results := make(map[string]NetworkSpeedResult)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, target := range req.Targets {
+		wg.Add(1)
+		go func(t NetworkSpeedTarget) {
+			defer wg.Done()
+			res := testSingleWebTarget(ctx, t.URL, 3500*time.Millisecond)
+			mu.Lock()
+			results[t.ID] = res
+			mu.Unlock()
+		}(target)
+	}
+
+	wg.Wait()
+
+	okCount := 0
+	for _, res := range results {
+		if res.Status == "ok" && res.Delay >= 0 {
+			okCount++
+		}
+	}
+
+	if okCount == len(req.Targets) {
+		h.log.Success("NETWORK", fmt.Sprintf("主机网络测速完成: %d/%d 目标连通", okCount, len(req.Targets)))
+	} else {
+		h.log.Warn("NETWORK", fmt.Sprintf("主机网络测速完成: %d/%d 目标连通", okCount, len(req.Targets)))
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"results": results,
+	})
+}
+
+func testSingleWebTarget(parentCtx context.Context, targetURL string, timeout time.Duration) NetworkSpeedResult {
+	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
+		targetURL = "http://" + targetURL
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+	if err != nil {
+		return NetworkSpeedResult{Delay: -1, Status: "error", Error: err.Error()}
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	duration := int(time.Since(start).Milliseconds())
+
+	if err != nil {
+		lowerErr := strings.ToLower(err.Error())
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) || strings.Contains(lowerErr, "timeout") || strings.Contains(lowerErr, "deadline") {
+			return NetworkSpeedResult{Delay: -1, Status: "timeout", Error: "超时"}
+		}
+		return NetworkSpeedResult{Delay: -1, Status: "error", Error: err.Error()}
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+
+	return NetworkSpeedResult{Delay: duration, Status: "ok"}
 }
 
 // GetLogs returns system activity logs

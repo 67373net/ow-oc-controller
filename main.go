@@ -80,6 +80,7 @@ func main() {
 	mux.HandleFunc("GET /api/proxies", apiHandler.GetProxies)
 	mux.HandleFunc("POST /api/proxies/select", apiHandler.SelectProxy)
 	mux.HandleFunc("POST /api/proxies/delay", apiHandler.TestDelay)
+	mux.HandleFunc("POST /api/network/speed", apiHandler.TestNetworkSpeed)
 	mux.HandleFunc("GET /api/connections", apiHandler.GetConnections)
 	mux.HandleFunc("POST /api/connections/config", apiHandler.SetConnLogConfig)
 	mux.HandleFunc("POST /api/connections/clear", apiHandler.ClearConnections)

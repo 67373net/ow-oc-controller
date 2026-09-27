@@ -2215,43 +2215,56 @@ async function handleTestWebSpeed() {
     }
   });
 
-  const promises = targets.map(async (t) => {
-    const el = document.getElementById(`speed-val-${t.id}`);
-    const start = performance.now();
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const sep = t.url.includes('?') ? '&' : '?';
-      await fetch(t.url + sep + '_t=' + Date.now(), {
-        mode: 'no-cors',
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const delay = Math.round(performance.now() - start);
+  try {
+    const res = await fetch('/api/network/speed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targets: targets.map(t => ({ id: t.id, url: t.url })),
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const results = data.results || {};
+
+    let okCount = 0;
+    targets.forEach(t => {
+      const el = document.getElementById(`speed-val-${t.id}`);
+      const r = results[t.id];
       if (el) {
-        el.textContent = `${delay} ms`;
-        if (delay < 150) {
-          el.className = 'speed-val fast';
-        } else if (delay < 400) {
-          el.className = 'speed-val medium';
+        if (r && r.status === 'ok' && r.delay >= 0) {
+          okCount++;
+          el.textContent = `${r.delay} ms`;
+          if (r.delay < 150) {
+            el.className = 'speed-val fast';
+          } else if (r.delay < 400) {
+            el.className = 'speed-val medium';
+          } else {
+            el.className = 'speed-val slow';
+          }
         } else {
+          el.textContent = '超时';
           el.className = 'speed-val slow';
         }
       }
-    } catch {
+    });
+
+    showToast(`主机网络测速完成: ${okCount}/${targets.length} 目标连通`);
+    fetchLogs();
+  } catch (err) {
+    targets.forEach(t => {
+      const el = document.getElementById(`speed-val-${t.id}`);
       if (el) {
         el.textContent = '超时';
         el.className = 'speed-val slow';
       }
-    }
-  });
-
-  await Promise.all(promises);
-
-  if (btn) btn.disabled = false;
-  if (btnText) btnText.textContent = '测速';
-  showToast('网络测速完成');
+    });
+    showToast('测速请求失败: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = '测速';
+  }
 }
 
 // Attach action functions to window for onclick handlers
