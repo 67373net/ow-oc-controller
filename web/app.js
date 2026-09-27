@@ -42,6 +42,9 @@ const state = {
     : null,
   customLinks: [],
   isLinkModalOpen: false,
+  lastSpeedTestTime: localStorage.getItem('last_web_speed_time')
+    ? parseInt(localStorage.getItem('last_web_speed_time'), 10)
+    : null,
 };
 
 // Initialize Application
@@ -51,10 +54,14 @@ document.addEventListener('DOMContentLoaded', () => {
   loadCustomLinks();
   setupEventListeners();
   setupInactiveOptimization();
+  initSpeedTimeAgo();
   
   // Initial data load
   refreshAll();
   startPolling();
+
+  // Test speed once on initial page load
+  handleTestWebSpeed();
 });
 
 // ----------------------------------------------------
@@ -624,7 +631,6 @@ async function refreshAll() {
     fetchProxies(),
     fetchLogs(),
   ]);
-  handleTestWebSpeed();
 }
 
 async function fetchStatus() {
@@ -2250,6 +2256,12 @@ async function handleTestWebSpeed() {
       }
     });
 
+    state.lastSpeedTestTime = Date.now();
+    try {
+      localStorage.setItem('last_web_speed_time', state.lastSpeedTestTime.toString());
+    } catch (e) {}
+    updateSpeedTimeAgo();
+
     showToast(`主机网络测速完成: ${okCount}/${targets.length} 目标连通`);
     fetchLogs();
   } catch (err) {
@@ -2260,11 +2272,58 @@ async function handleTestWebSpeed() {
         el.className = 'speed-val slow';
       }
     });
+    state.lastSpeedTestTime = Date.now();
+    try {
+      localStorage.setItem('last_web_speed_time', state.lastSpeedTestTime.toString());
+    } catch (e) {}
+    updateSpeedTimeAgo();
     showToast('测速请求失败: ' + err.message);
   } finally {
     if (btn) btn.disabled = false;
     if (btnText) btnText.textContent = '测速';
   }
+}
+
+// ----------------------------------------------------
+// Network Speed Relative Time Display (x秒前 / x分钟前 / x小时前)
+// ----------------------------------------------------
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diffSec = Math.max(0, Math.floor((now - timestamp) / 1000));
+
+  if (diffSec < 10) {
+    return '刚刚';
+  }
+  if (diffSec < 60) {
+    return `${diffSec}秒前`;
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return `${diffMin}分钟前`;
+  }
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) {
+    return `${diffHour}小时前`;
+  }
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay}天前`;
+}
+
+function updateSpeedTimeAgo() {
+  const el = document.getElementById('speed-time-ago');
+  if (!el) return;
+  if (!state.lastSpeedTestTime) {
+    el.textContent = '';
+    return;
+  }
+  const text = formatTimeAgo(state.lastSpeedTestTime);
+  el.textContent = text ? `· ${text}` : '';
+}
+
+function initSpeedTimeAgo() {
+  updateSpeedTimeAgo();
+  setInterval(updateSpeedTimeAgo, 1000);
 }
 
 // Attach action functions to window for onclick handlers
