@@ -46,6 +46,7 @@ type ProxyItem struct {
 	All     []string       `json:"all,omitempty"`
 	History []ProxyHistory `json:"history,omitempty"`
 	UDP     bool           `json:"udp,omitempty"`
+	Hidden  bool           `json:"hidden,omitempty"`
 }
 
 type ProxiesResponse struct {

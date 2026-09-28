@@ -734,7 +734,8 @@ async function fetchProxies() {
     if (state.groups.length > 0) {
       const exists = state.groups.some(g => g.name === state.activeGroupName);
       if (!exists || !state.activeGroupName) {
-        state.activeGroupName = state.groups[0].name;
+        const primaryG = state.groups.find(g => g.name === state.status?.primary_group);
+        state.activeGroupName = primaryG ? primaryG.name : state.groups[0].name;
       }
       renderGroups();
       renderNodes();
@@ -832,9 +833,9 @@ function updateStatusUI() {
   if (!s.is_enabled && !s.clash_online) {
     if (activeNodeDisplay) activeNodeDisplay.textContent = '服务已停止';
     if (activeGroupMeta) activeGroupMeta.textContent = '当前未运行代理';
-  } else if (!activeNodeDisplay.textContent || activeNodeDisplay.textContent === '-' || activeNodeDisplay.textContent === '服务已停止') {
-    activeNodeDisplay.textContent = s.primary_node || '自动选择';
-    activeGroupMeta.textContent = `策略组: ${s.primary_group || '默认'}`;
+  } else {
+    if (activeNodeDisplay) activeNodeDisplay.textContent = s.primary_node || '自动选择';
+    if (activeGroupMeta) activeGroupMeta.textContent = `策略组: ${s.primary_group || '默认'}`;
   }
 
   // Retention setting sync
@@ -1106,14 +1107,6 @@ function renderNodes() {
     sectionTitle.textContent = `切换节点 (${group.name})`;
   }
 
-  // Update top exit node to match the current group selection
-  if (group.current) {
-    const activeNodeDisplay = document.getElementById('active-node-display');
-    const activeGroupMeta = document.getElementById('active-group-meta');
-    if (activeNodeDisplay) activeNodeDisplay.textContent = group.current;
-    if (activeGroupMeta) activeGroupMeta.textContent = `策略组: ${group.name}`;
-  }
-
   let filtered = group.nodes;
   if (state.searchQuery) {
     filtered = filtered.filter(n => n.name.toLowerCase().includes(state.searchQuery));
@@ -1129,13 +1122,14 @@ function renderNodes() {
     const activeClass = isCurrent ? 'active' : '';
     
     const delay = state.delays[node.name] !== undefined ? state.delays[node.name] : node.delay;
-    const { delayClass, delayText } = formatDelay(delay);
+    const { delayClass, delayText } = formatDelay(delay, node.type);
+    const typeLabel = node.is_group ? (node.type || '策略组') : (node.type || 'Proxy');
 
     return `
       <div class="node-card ${activeClass}" data-group="${escapeHTML(group.name)}" data-name="${escapeHTML(node.name)}">
         <div class="node-main">
           <div class="node-name" title="${escapeHTML(node.name)}">${escapeHTML(node.name)}</div>
-          <div class="node-type">${escapeHTML(node.type || 'Proxy')}</div>
+          <div class="node-type">${escapeHTML(typeLabel)}</div>
         </div>
         <div class="node-right">
           <span class="delay-tag ${delayClass}">${delayText}</span>
@@ -1155,7 +1149,13 @@ function renderNodes() {
 }
 
 // Latency text formatting (displays "未测速" instead of cryptic "-")
-function formatDelay(delay) {
+function formatDelay(delay, type) {
+  if (type === 'Direct') {
+    return { delayClass: 'fast', delayText: '直连' };
+  }
+  if (type === 'Reject') {
+    return { delayClass: 'slow', delayText: '拦截' };
+  }
   if (delay === undefined || delay === 0 || delay === null) {
     return { delayClass: 'untested', delayText: '未测速' };
   }
@@ -1541,14 +1541,11 @@ async function selectNode(groupName, name) {
       const g = state.groups.find(x => x.name === groupName);
       if (g) g.current = name;
 
-      // Synchronize top exit node display in real time
-      const activeNodeDisplay = document.getElementById('active-node-display');
-      const activeGroupMeta = document.getElementById('active-group-meta');
-      if (activeNodeDisplay) activeNodeDisplay.textContent = name;
-      if (activeGroupMeta) activeGroupMeta.textContent = `策略组: ${groupName}`;
-
       renderGroups();
       renderNodes();
+
+      // Refresh system status to update the resolved primary exit node
+      await fetchStatus();
       fetchLogs();
     } else {
       showToast('切换节点失败: ' + (data.error || ''));
@@ -2297,18 +2294,18 @@ function formatTimeAgo(timestamp) {
   }
   if (diffSec < 60) {
     const tens = Math.floor(diffSec / 10) * 10;
-    return `${tens}秒`;
+    return `${tens}秒前`;
   }
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) {
-    return `${diffMin}分`;
+    return `${diffMin}分前`;
   }
   const diffHour = Math.floor(diffMin / 60);
   if (diffHour < 24) {
-    return `${diffHour}小时`;
+    return `${diffHour}小时前`;
   }
   const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}天`;
+  return `${diffDay}天前`;
 }
 
 function updateSpeedTimeAgo() {

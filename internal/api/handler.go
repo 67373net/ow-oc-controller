@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -85,6 +86,91 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, msg string) {
 	h.writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// cleanGroupName removes emoji, punctuation, and whitespace for fuzzy/normalized matching
+func cleanGroupName(name string) string {
+	var sb strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || (r >= 0x4e00 && r <= 0x9fa5) {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+// resolveExitLeaf recursively traverses proxy groups to find the actual leaf outbound node
+func resolveExitLeaf(proxies map[string]clash.ProxyItem, current string, depth int) string {
+	if depth > 10 || current == "" {
+		return current
+	}
+	item, ok := proxies[current]
+	if !ok {
+		return current
+	}
+	isGroup := item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" || item.Type == "LoadBalance" || item.Type == "Relay" || len(item.All) > 0
+	if isGroup && item.Now != "" && item.Now != current {
+		return resolveExitLeaf(proxies, item.Now, depth+1)
+	}
+	return current
+}
+
+// findPrimaryGroup determines the main policy group based on mode and configuration
+func findPrimaryGroup(proxies map[string]clash.ProxyItem, mode string) string {
+	if strings.ToLower(mode) == "global" {
+		if _, ok := proxies["GLOBAL"]; ok {
+			return "GLOBAL"
+		}
+		if _, ok := proxies["Global"]; ok {
+			return "Global"
+		}
+	}
+
+	// Keywords in order of preference for main outbound rule group
+	candidateKeywords := []string{
+		"节点选择",
+		"选择节点",
+		"proxy",
+		"proxies",
+		"default",
+		"手动切换",
+		"自动选择",
+	}
+
+	for _, kw := range candidateKeywords {
+		for name, item := range proxies {
+			if item.Hidden {
+				continue
+			}
+			isGroup := item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" || len(item.All) > 0
+			if !isGroup {
+				continue
+			}
+			clean := cleanGroupName(name)
+			if strings.EqualFold(clean, kw) || strings.Contains(strings.ToLower(clean), strings.ToLower(kw)) {
+				return name
+			}
+		}
+	}
+
+	// Fallback: first non-hidden Selector group that is not GLOBAL, DIRECT, REJECT
+	for name, item := range proxies {
+		if item.Hidden {
+			continue
+		}
+		u := strings.ToUpper(name)
+		if u == "GLOBAL" || u == "DIRECT" || u == "REJECT" {
+			continue
+		}
+		if item.Type == "Selector" && len(item.All) > 0 {
+			return name
+		}
+	}
+
+	if _, ok := proxies["GLOBAL"]; ok {
+		return "GLOBAL"
+	}
+	return ""
+}
+
 // GetStatus returns aggregated real-time status of OpenClash & OpenWrt
 func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -153,29 +239,27 @@ func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	// 4. Proxies overview
 	if status.ClashOnline {
 		if proxiesResp, err := h.clash.GetProxies(ctx); err == nil && proxiesResp != nil {
-			var candidateGroups = []string{"Proxy", "PROXY", "节点选择", "GLOBAL", "Global"}
-			for _, gName := range candidateGroups {
-				if item, exists := proxiesResp.Proxies[gName]; exists && len(item.All) > 0 {
-					status.PrimaryGroup = item.Name
-					status.PrimaryNode = item.Now
-					break
-				}
+			primaryGroup := findPrimaryGroup(proxiesResp.Proxies, status.Mode)
+			status.PrimaryGroup = primaryGroup
+			if primaryItem, exists := proxiesResp.Proxies[primaryGroup]; exists && primaryItem.Now != "" {
+				status.PrimaryNode = resolveExitLeaf(proxiesResp.Proxies, primaryItem.Now, 0)
 			}
 
-			if status.PrimaryGroup == "" {
-				for name, item := range proxiesResp.Proxies {
-					if item.Type == "Selector" && len(item.All) > 0 {
-						status.PrimaryGroup = name
-						status.PrimaryNode = item.Now
-						break
-					}
-				}
+			if status.PrimaryNode == "" {
+				status.PrimaryNode = "自动选择"
 			}
 
+			isRuleMode := strings.ToLower(status.Mode) != "global"
 			for _, item := range proxiesResp.Proxies {
-				if item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" {
+				if item.Hidden {
+					continue
+				}
+				if strings.ToUpper(item.Name) == "GLOBAL" && isRuleMode {
+					continue
+				}
+				if item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" || item.Type == "LoadBalance" || item.Type == "Relay" {
 					status.GroupsCount++
-				} else if item.Type != "Direct" && item.Type != "Reject" && item.Type != "Compatible" {
+				} else if item.Type != "Direct" && item.Type != "Reject" && item.Type != "Compatible" && len(item.All) == 0 {
 					status.NodesCount++
 				}
 			}
@@ -381,6 +465,7 @@ func (h *Handler) UpdateProvider(w http.ResponseWriter, r *http.Request) {
 type ProxyNodeView struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
+	IsGroup   bool   `json:"is_group"`
 	Delay     int    `json:"delay"`
 	IsCurrent bool   `json:"is_current"`
 	UDP       bool   `json:"udp"`
@@ -404,10 +489,26 @@ func (h *Handler) GetProxies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode := "Rule"
+	if cfgResp, err := h.clash.GetConfigs(ctx); err == nil && cfgResp != nil {
+		mode = cfgResp.Mode
+	}
+	isRuleMode := strings.ToLower(mode) != "global"
+
 	groups := make([]ProxyGroupView, 0)
 
 	for name, item := range resp.Proxies {
-		if item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" {
+		// 1. Skip hidden groups (e.g. internal regional url-test groups)
+		if item.Hidden {
+			continue
+		}
+
+		// 2. In Rule mode, hide GLOBAL so it doesn't pollute rule mode groups
+		if strings.ToUpper(name) == "GLOBAL" && isRuleMode {
+			continue
+		}
+
+		if item.Type == "Selector" || item.Type == "URLTest" || item.Type == "Fallback" || item.Type == "LoadBalance" || item.Type == "Relay" {
 			gv := ProxyGroupView{
 				Name:    name,
 				Type:    item.Type,
@@ -419,18 +520,30 @@ func (h *Handler) GetProxies(w http.ResponseWriter, r *http.Request) {
 				delay := 0
 				udp := false
 				nodeType := "Unknown"
+				isGroup := false
 
-				if nodeItem, ok := resp.Proxies[nodeName]; ok {
-					nodeType = nodeItem.Type
-					udp = nodeItem.UDP
-					if len(nodeItem.History) > 0 {
-						delay = nodeItem.History[len(nodeItem.History)-1].Delay
+				if childItem, ok := resp.Proxies[nodeName]; ok {
+					nodeType = childItem.Type
+					udp = childItem.UDP
+					isGroup = childItem.Type == "Selector" || childItem.Type == "URLTest" || childItem.Type == "Fallback" || childItem.Type == "LoadBalance" || childItem.Type == "Relay" || len(childItem.All) > 0
+
+					if len(childItem.History) > 0 {
+						delay = childItem.History[len(childItem.History)-1].Delay
+					}
+
+					// If delay is 0 and it's a sub-group, inherit delay from its current resolved exit node
+					if delay <= 0 && isGroup && childItem.Now != "" {
+						exitLeaf := resolveExitLeaf(resp.Proxies, childItem.Now, 0)
+						if leafItem, leafOk := resp.Proxies[exitLeaf]; leafOk && len(leafItem.History) > 0 {
+							delay = leafItem.History[len(leafItem.History)-1].Delay
+						}
 					}
 				}
 
 				gv.Nodes = append(gv.Nodes, ProxyNodeView{
 					Name:      nodeName,
 					Type:      nodeType,
+					IsGroup:   isGroup,
 					Delay:     delay,
 					IsCurrent: nodeName == item.Now,
 					UDP:       udp,
@@ -441,17 +554,24 @@ func (h *Handler) GetProxies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Deterministic sorting so strategy group tabs never shuffle on refresh
+	// Deterministic sorting with smart priority matching
 	sort.SliceStable(groups, func(i, j int) bool {
 		priority := func(name string) int {
-			u := strings.ToUpper(name)
+			cleaned := cleanGroupName(name)
+			u := strings.ToUpper(cleaned)
 			switch {
-			case u == "PROXY" || name == "节点选择":
+			case strings.Contains(u, "PROXY") || strings.Contains(cleaned, "节点选择") || strings.Contains(cleaned, "选择节点"):
 				return 0
-			case u == "GLOBAL":
+			case strings.Contains(cleaned, "手动切换") || strings.Contains(cleaned, "手动选择"):
 				return 1
-			case strings.Contains(name, "漏网") || strings.Contains(u, "MATCH"):
-				return 20
+			case strings.Contains(cleaned, "自动选择") || strings.Contains(cleaned, "自动"):
+				return 2
+			case strings.Contains(cleaned, "漏网") || strings.Contains(u, "MATCH"):
+				return 80
+			case strings.Contains(cleaned, "全球直连") || strings.Contains(cleaned, "直连") || strings.Contains(u, "DIRECT"):
+				return 85
+			case strings.ToUpper(name) == "GLOBAL":
+				return 99
 			default:
 				return 10
 			}
@@ -555,7 +675,7 @@ type NetworkSpeedResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// TestNetworkSpeed tests target website connectivity directly from the host machine
+// TestNetworkSpeed tests target website connectivity directly from the host machine and via OpenClash proxy fallback
 func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 	var req NetworkSpeedRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Targets) == 0 {
@@ -567,8 +687,22 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
+
+	// Determine OpenClash proxy address for overseas fallback
+	var proxyURL string
+	if h.cfg.SubscriptionProxy != "" {
+		proxyURL = h.cfg.SubscriptionProxy
+	} else if cfgResp, err := h.clash.GetConfigs(ctx); err == nil && cfgResp != nil {
+		port := cfgResp.MixedPort
+		if port == 0 {
+			port = cfgResp.Port
+		}
+		if port > 0 {
+			proxyURL = fmt.Sprintf("http://%s:%d", h.cfg.OpenWrtHost, port)
+		}
+	}
 
 	results := make(map[string]NetworkSpeedResult)
 	var mu sync.Mutex
@@ -578,7 +712,7 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(t NetworkSpeedTarget) {
 			defer wg.Done()
-			res := testSingleWebTarget(ctx, t.URL, 3500*time.Millisecond)
+			res := testSingleWebTarget(ctx, t.URL, 5000*time.Millisecond, proxyURL)
 			mu.Lock()
 			results[t.ID] = res
 			mu.Unlock()
@@ -605,11 +739,33 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func testSingleWebTarget(parentCtx context.Context, targetURL string, timeout time.Duration) NetworkSpeedResult {
+func testSingleWebTarget(parentCtx context.Context, targetURL string, timeout time.Duration, proxyURL string) NetworkSpeedResult {
 	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
 		targetURL = "http://" + targetURL
 	}
 
+	// 1. First probe: direct host connection
+	res := doWebProbe(parentCtx, targetURL, timeout, "")
+	if res.Status == "ok" {
+		return res
+	}
+
+	// 2. If direct probe failed or timed out, and target is foreign (Google/YouTube/etc.), probe via OpenClash proxy port
+	if proxyURL != "" {
+		lowerURL := strings.ToLower(targetURL)
+		isForeign := strings.Contains(lowerURL, "google") || strings.Contains(lowerURL, "youtube") || strings.Contains(lowerURL, "github") || strings.Contains(lowerURL, "twitter")
+		if isForeign {
+			proxyRes := doWebProbe(parentCtx, targetURL, timeout, proxyURL)
+			if proxyRes.Status == "ok" {
+				return proxyRes
+			}
+		}
+	}
+
+	return res
+}
+
+func doWebProbe(parentCtx context.Context, targetURL string, timeout time.Duration, proxyURL string) NetworkSpeedResult {
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 
@@ -622,8 +778,19 @@ func testSingleWebTarget(parentCtx context.Context, targetURL string, timeout ti
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Accept", "*/*")
 
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+	}
+
+	if proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	}
+
 	client := &http.Client{
-		Timeout: timeout,
+		Transport: transport,
+		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {
 				return http.ErrUseLastResponse
