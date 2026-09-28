@@ -113,8 +113,8 @@ func resolveExitLeaf(proxies map[string]clash.ProxyItem, current string, depth i
 	return current
 }
 
-// findPrimaryGroup determines the main policy group based on mode and configuration
-func findPrimaryGroup(proxies map[string]clash.ProxyItem, mode string) string {
+// findPrimaryGroup determines the main policy group based on Clash Core rules and topology
+func findPrimaryGroup(ctx context.Context, clashClient *clash.Client, proxies map[string]clash.ProxyItem, mode string) string {
 	if strings.ToLower(mode) == "global" {
 		if _, ok := proxies["GLOBAL"]; ok {
 			return "GLOBAL"
@@ -124,7 +124,56 @@ func findPrimaryGroup(proxies map[string]clash.ProxyItem, mode string) string {
 		}
 	}
 
-	// Keywords in order of preference for main outbound rule group
+	// 1. Protocol-Level Resolution via Clash Core /rules API:
+	// The profile's MATCH rule is the core's default catch-all outbound route!
+	if clashClient != nil {
+		if rulesResp, err := clashClient.GetRules(ctx); err == nil && rulesResp != nil && len(rulesResp.Rules) > 0 {
+			// Check MATCH rule (from bottom up, as MATCH is typically the last rule)
+			for i := len(rulesResp.Rules) - 1; i >= 0; i-- {
+				r := rulesResp.Rules[i]
+				if strings.EqualFold(r.Type, "MATCH") && r.Proxy != "" {
+					target := r.Proxy
+					if pItem, ok := proxies[target]; ok && (len(pItem.All) > 0 || pItem.Type == "Selector" || pItem.Type == "URLTest") {
+						// If MATCH points to a meta group (e.g. 漏网之鱼), check if it delegates to a main selector group
+						if pItem.Now != "" {
+							if subItem, subOk := proxies[pItem.Now]; subOk && len(subItem.All) > 0 {
+								if len(subItem.All) > len(pItem.All) {
+									return pItem.Now
+								}
+							}
+						}
+						return target
+					}
+				}
+			}
+
+			// Frequency analysis: which proxy group is referenced most in the routing rules?
+			groupCounts := make(map[string]int)
+			for _, r := range rulesResp.Rules {
+				pName := r.Proxy
+				if pName == "" || strings.EqualFold(pName, "DIRECT") || strings.EqualFold(pName, "REJECT") || strings.EqualFold(pName, "COMPATIBLE") {
+					continue
+				}
+				if pItem, ok := proxies[pName]; ok && (len(pItem.All) > 0 || pItem.Type == "Selector" || pItem.Type == "URLTest") {
+					groupCounts[pName]++
+				}
+			}
+
+			var bestGroup string
+			var maxCount int
+			for gName, count := range groupCounts {
+				if count > maxCount {
+					maxCount = count
+					bestGroup = gName
+				}
+			}
+			if bestGroup != "" {
+				return bestGroup
+			}
+		}
+	}
+
+	// 2. Keyword & Topology Fallback:
 	candidateKeywords := []string{
 		"节点选择",
 		"选择节点",
@@ -151,7 +200,7 @@ func findPrimaryGroup(proxies map[string]clash.ProxyItem, mode string) string {
 		}
 	}
 
-	// Fallback: first non-hidden Selector group that is not GLOBAL, DIRECT, REJECT
+	// 3. Fallback: first non-hidden Selector group that is not GLOBAL, DIRECT, REJECT
 	for name, item := range proxies {
 		if item.Hidden {
 			continue
@@ -239,7 +288,7 @@ func (h *Handler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	// 4. Proxies overview
 	if status.ClashOnline {
 		if proxiesResp, err := h.clash.GetProxies(ctx); err == nil && proxiesResp != nil {
-			primaryGroup := findPrimaryGroup(proxiesResp.Proxies, status.Mode)
+			primaryGroup := findPrimaryGroup(ctx, h.clash, proxiesResp.Proxies, status.Mode)
 			status.PrimaryGroup = primaryGroup
 			if primaryItem, exists := proxiesResp.Proxies[primaryGroup]; exists && primaryItem.Now != "" {
 				status.PrimaryNode = resolveExitLeaf(proxiesResp.Proxies, primaryItem.Now, 0)
@@ -675,7 +724,7 @@ type NetworkSpeedResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// TestNetworkSpeed tests target website connectivity directly from the host machine and via OpenClash proxy fallback
+// TestNetworkSpeed tests target website connectivity directly and via OpenClash Core Delay API
 func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 	var req NetworkSpeedRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Targets) == 0 {
@@ -690,7 +739,21 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
 
-	// Determine OpenClash proxy address for overseas fallback
+	// 1. Resolve current active proxy node and group for router-side delay testing
+	var primaryNode string
+	var primaryGroup string
+	if proxiesResp, err := h.clash.GetProxies(ctx); err == nil && proxiesResp != nil {
+		mode := "Rule"
+		if cfgResp, err := h.clash.GetConfigs(ctx); err == nil && cfgResp != nil {
+			mode = cfgResp.Mode
+		}
+		primaryGroup = findPrimaryGroup(ctx, h.clash, proxiesResp.Proxies, mode)
+		if primaryItem, exists := proxiesResp.Proxies[primaryGroup]; exists && primaryItem.Now != "" {
+			primaryNode = resolveExitLeaf(proxiesResp.Proxies, primaryItem.Now, 0)
+		}
+	}
+
+	// 2. Determine OpenClash proxy address for overseas fallback
 	var proxyURL string
 	if h.cfg.SubscriptionProxy != "" {
 		proxyURL = h.cfg.SubscriptionProxy
@@ -712,7 +775,7 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(t NetworkSpeedTarget) {
 			defer wg.Done()
-			res := testSingleWebTarget(ctx, t.URL, 5000*time.Millisecond, proxyURL)
+			res := h.testSingleTarget(ctx, t.URL, 5000*time.Millisecond, primaryNode, primaryGroup, proxyURL)
 			mu.Lock()
 			results[t.ID] = res
 			mu.Unlock()
@@ -739,22 +802,44 @@ func (h *Handler) TestNetworkSpeed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func testSingleWebTarget(parentCtx context.Context, targetURL string, timeout time.Duration, proxyURL string) NetworkSpeedResult {
+func (h *Handler) testSingleTarget(parentCtx context.Context, targetURL string, timeout time.Duration, primaryNode, primaryGroup, proxyURL string) NetworkSpeedResult {
 	if !strings.HasPrefix(targetURL, "http://") && !strings.HasPrefix(targetURL, "https://") {
 		targetURL = "http://" + targetURL
 	}
 
-	// 1. First probe: direct host connection
+	lowerURL := strings.ToLower(targetURL)
+	isForeign := strings.Contains(lowerURL, "google") || strings.Contains(lowerURL, "youtube") || strings.Contains(lowerURL, "github") || strings.Contains(lowerURL, "twitter")
+
+	// 1. Direct host probe
+	// For domestic sites (Baidu, Bilibili) or hosts with direct proxy, host probe is instantaneous
 	res := doWebProbe(parentCtx, targetURL, timeout, "")
 	if res.Status == "ok" {
 		return res
 	}
 
-	// 2. If direct probe failed or timed out, and target is foreign (Google/YouTube/etc.), probe via OpenClash proxy port
-	if proxyURL != "" {
-		lowerURL := strings.ToLower(targetURL)
-		isForeign := strings.Contains(lowerURL, "google") || strings.Contains(lowerURL, "youtube") || strings.Contains(lowerURL, "github") || strings.Contains(lowerURL, "twitter")
-		if isForeign {
+	// 2. If host direct probe failed (which always happens for foreign sites when host bypasses OpenClash),
+	// use OpenClash Core Delay API (/proxies/:name/delay) to test DIRECTLY ON OPENWRT!
+	// This delegates the latency test to the router's Clash core, which sends traffic through the proxy
+	// regardless of whether the host machine is set to bypass OpenClash!
+	if isForeign {
+		testNodes := make([]string, 0, 2)
+		if primaryNode != "" && !strings.EqualFold(primaryNode, "DIRECT") && !strings.EqualFold(primaryNode, "REJECT") {
+			testNodes = append(testNodes, primaryNode)
+		}
+		if primaryGroup != "" && primaryGroup != primaryNode {
+			testNodes = append(testNodes, primaryGroup)
+		}
+
+		timeoutMs := int(timeout.Milliseconds())
+		for _, node := range testNodes {
+			delay, err := h.clash.TestDelay(parentCtx, node, targetURL, timeoutMs)
+			if err == nil && delay > 0 {
+				return NetworkSpeedResult{Delay: delay, Status: "ok"}
+			}
+		}
+
+		// 3. Fallback: try via OpenClash mixed proxy port if configured
+		if proxyURL != "" {
 			proxyRes := doWebProbe(parentCtx, targetURL, timeout, proxyURL)
 			if proxyRes.Status == "ok" {
 				return proxyRes

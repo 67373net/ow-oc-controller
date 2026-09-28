@@ -70,6 +70,16 @@ type TrafficResponse struct {
 	Down int64 `json:"down"`
 }
 
+type RuleItem struct {
+	Type    string `json:"type"`
+	Payload string `json:"payload"`
+	Proxy   string `json:"proxy"`
+}
+
+type RulesResponse struct {
+	Rules []RuleItem `json:"rules"`
+}
+
 func NewClient(baseURL, secret string) *Client {
 	transport := &http.Transport{
 		MaxIdleConns:        50,
@@ -179,6 +189,25 @@ func (c *Client) GetProxies(ctx context.Context) (*ProxiesResponse, error) {
 	}
 
 	var res ProxiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// GetRules retrieves active routing rules from Clash core
+func (c *Client) GetRules(ctx context.Context) (*RulesResponse, error) {
+	resp, err := c.request(ctx, http.MethodGet, "/rules", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+	}
+
+	var res RulesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return nil, err
 	}
