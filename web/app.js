@@ -1128,34 +1128,38 @@ function renderAirportsModule() {
 
         <div class="airport-row-actions">
           ${!isActive ? `
-            <button class="btn-action btn-sm-action btn-primary-action" onclick="handleSelectAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
-              <span>使用此机场</span>
+            <button class="btn-action btn-sm-action btn-airport-slot" onclick="handleSelectAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+              <span>启用</span>
             </button>
           ` : `
-            <span class="airport-current-hint">当前出站</span>
+            <span class="airport-slot-placeholder airport-current-hint">启用中</span>
           `}
 
           ${isPreviewing ? `
-            <button class="btn-action btn-sm-action" onclick="handleExitPreview()">
+            <button class="btn-action btn-sm-action btn-airport-slot btn-preview-on" onclick="handleExitPreview()">
               <span>退出预览</span>
             </button>
           ` : `
-            <button class="btn-action btn-sm-action" onclick="handlePreviewAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+            <button class="btn-action btn-sm-action btn-airport-slot" onclick="handlePreviewAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
               <span>预览</span>
             </button>
           `}
 
           ${isSub ? `
-            <button class="btn-action btn-sm-action" title="同步更新此订阅" onclick="handleUpdateSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+            <button class="btn-action btn-sm-action btn-airport-slot" title="同步更新此订阅" onclick="handleUpdateSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
               <span>更新</span>
             </button>
-          ` : ''}
+          ` : `
+            <span class="airport-slot-placeholder" aria-hidden="true"></span>
+          `}
 
           ${!isActive ? `
-            <button class="btn-action btn-sm-action btn-danger-action" title="删除此机场配置" onclick="handleDeleteSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+            <button class="btn-action btn-sm-action btn-airport-slot btn-danger-action" title="删除此机场配置" onclick="handleDeleteSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
               <span>删除</span>
             </button>
-          ` : ''}
+          ` : `
+            <span class="airport-slot-placeholder" aria-hidden="true"></span>
+          `}
         </div>
       </div>
     `;
@@ -1349,7 +1353,7 @@ function renderNodes() {
       const gName = card.dataset.group;
       const nName = card.dataset.name;
       if (state.preview.active) {
-        showToast('当前为预览模式，点击上方“使用此机场出站”生效后方可切换');
+        showToast('当前为预览模式，点击上方“启用此机场出站”生效后方可切换');
         return;
       }
       if (card.classList.contains('active')) return;

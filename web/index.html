@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="shortcut icon" href="favicon.ico">
   <link rel="apple-touch-icon" href="logo.png">
-  <link rel="stylesheet" href="app.css?v=2.2">
+  <link rel="stylesheet" href="app.css?v=2.3">
 </head>
 <body>
   <header class="app-header">
@@ -74,11 +74,12 @@
   <main class="app-main">
     <!-- VIEW 1: DASHBOARD -->
     <div id="view-dashboard" class="view-panel active">
-      <!-- Top Control Banner -->
-      <section class="overview-section">
-        <!-- Combined Card: Power Switch & Outbound Exit Node -->
-        <div class="overview-card power-outbound-card">
-          <div class="power-col">
+      <!-- Top Overview & Airports Section (Two Columns: Left narrow 3 rows, Right wide airports) -->
+      <section class="top-two-cols-section">
+        <!-- Left Column: 3 stacked rows -->
+        <div class="top-left-col">
+          <!-- Row 1: Power Switch Card -->
+          <div class="overview-card top-side-card power-side-card">
             <div class="card-label">服务总开关</div>
             <div class="power-row">
               <div class="power-status-value" id="power-status-display">检测中...</div>
@@ -89,94 +90,95 @@
             <div class="power-meta-info" id="power-meta">模式: - | 路由: -</div>
           </div>
 
-          <div class="card-divider"></div>
-
-          <div class="outbound-col">
+          <!-- Row 2: Current Outbound Node Card -->
+          <div class="overview-card top-side-card outbound-side-card">
             <div class="card-label">当前出口节点</div>
             <div class="card-highlight" id="active-node-display">-</div>
             <div class="card-meta" id="active-group-meta">策略组: -</div>
           </div>
-        </div>
 
-        <!-- Card 2: Network Speed Test -->
-        <div class="overview-card speed-card">
-          <div class="card-header-row">
-            <div class="card-label">网络测速 <span class="speed-time-ago" id="speed-time-ago"></span></div>
-            <div class="card-actions-group" style="display: flex; gap: 6px;">
-              <button class="btn-action btn-sm-action" id="btn-config-web-speed" title="配置测速目标网站">
-                <span>配置</span>
-              </button>
-              <button class="btn-action btn-sm-action" id="btn-test-web-speed">
-                <span id="web-speed-btn-text">测速</span>
-              </button>
+          <!-- Row 3: Network Speed Test Card -->
+          <div class="overview-card top-side-card speed-side-card">
+            <div class="card-header-row">
+              <div class="card-label">网络测速 <span class="speed-time-ago" id="speed-time-ago"></span></div>
+              <div class="card-actions-group" style="display: flex; gap: 6px;">
+                <button class="btn-action btn-sm-action" id="btn-config-web-speed" title="配置测速目标网站">
+                  <span>配置</span>
+                </button>
+                <button class="btn-action btn-sm-action" id="btn-test-web-speed">
+                  <span id="web-speed-btn-text">测速</span>
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="web-speed-grid" id="web-speed-grid">
-            <div class="speed-item" id="speed-item-baidu">
-              <span class="speed-name">百度</span>
-              <span class="speed-val" id="speed-val-baidu">-</span>
-            </div>
-            <div class="speed-item" id="speed-item-bilibili">
-              <span class="speed-name">B站</span>
-              <span class="speed-val" id="speed-val-bilibili">-</span>
-            </div>
-            <div class="speed-item" id="speed-item-google">
-              <span class="speed-name">Google</span>
-              <span class="speed-val" id="speed-val-google">-</span>
-            </div>
-            <div class="speed-item" id="speed-item-youtube">
-              <span class="speed-name">YouTube</span>
-              <span class="speed-val" id="speed-val-youtube">-</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Airport Subscriptions Section (Dedicated Long Module) -->
-      <section class="section-container airports-section" id="airports-section">
-        <div class="section-header">
-          <div class="section-header-left">
-            <div class="section-title">
-              <h2>机场与订阅</h2>
-              <span class="section-count-badge" id="airport-count-badge">0 个机场</span>
-            </div>
-          </div>
-
-          <div class="section-actions">
-            <button class="btn-action" id="btn-toggle-add-sub" type="button">
-              <span id="toggle-add-sub-text">+ 添加订阅</span>
-            </button>
-            <button class="btn-action" id="btn-upload-yaml-trigger" type="button">
-              <span>上传 YAML</span>
-            </button>
-            <input type="file" id="file-upload-yaml" accept=".yaml,.yml" style="display: none;">
-            <button class="btn-action" id="btn-batch-update-subs" type="button">
-              <span id="batch-update-btn-text">批量更新</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Inline Add/Import Form (expandable) -->
-        <div class="sub-inline-form-card" id="sub-inline-form" style="display: none;">
-          <div class="sub-form-row">
-            <div class="form-group form-group-name">
-              <label for="sub-input-name">机场名称 (可选)</label>
-              <input type="text" id="sub-input-name" placeholder="例如: 主力机场" autocomplete="off">
-            </div>
-            <div class="form-group form-group-flex">
-              <label for="sub-input-url">订阅链接</label>
-              <input type="url" id="sub-input-url" placeholder="https://..." autocomplete="off">
-            </div>
-            <div class="form-group-btn">
-              <button class="btn-action btn-primary-action" id="btn-add-sub">导入</button>
-              <button class="btn-action" id="btn-cancel-inline-sub" type="button">取消</button>
+            <div class="web-speed-grid" id="web-speed-grid">
+              <div class="speed-item" id="speed-item-baidu">
+                <span class="speed-name">百度</span>
+                <span class="speed-val" id="speed-val-baidu">-</span>
+              </div>
+              <div class="speed-item" id="speed-item-bilibili">
+                <span class="speed-name">B站</span>
+                <span class="speed-val" id="speed-val-bilibili">-</span>
+              </div>
+              <div class="speed-item" id="speed-item-google">
+                <span class="speed-name">Google</span>
+                <span class="speed-val" id="speed-val-google">-</span>
+              </div>
+              <div class="speed-item" id="speed-item-youtube">
+                <span class="speed-name">YouTube</span>
+                <span class="speed-val" id="speed-val-youtube">-</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Airport List Container -->
-        <div class="airports-list-grid" id="airports-list-container">
-          <div class="loading-state">加载机场列表中...</div>
+        <!-- Right Column: Airport Subscriptions -->
+        <div class="top-right-col">
+          <section class="section-container airports-section" id="airports-section">
+            <div class="section-header">
+              <div class="section-header-left">
+                <div class="section-title">
+                  <h2>机场与订阅</h2>
+                  <span class="section-count-badge" id="airport-count-badge">0 个机场</span>
+                </div>
+              </div>
+
+              <div class="section-actions">
+                <button class="btn-action" id="btn-toggle-add-sub" type="button">
+                  <span id="toggle-add-sub-text">+ 添加订阅</span>
+                </button>
+                <button class="btn-action" id="btn-upload-yaml-trigger" type="button">
+                  <span>上传 YAML</span>
+                </button>
+                <input type="file" id="file-upload-yaml" accept=".yaml,.yml" style="display: none;">
+                <button class="btn-action" id="btn-batch-update-subs" type="button">
+                  <span id="batch-update-btn-text">批量更新</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Inline Add/Import Form (expandable) -->
+            <div class="sub-inline-form-card" id="sub-inline-form" style="display: none;">
+              <div class="sub-form-row">
+                <div class="form-group form-group-name">
+                  <label for="sub-input-name">机场名称 (可选)</label>
+                  <input type="text" id="sub-input-name" placeholder="例如: 主力机场" autocomplete="off">
+                </div>
+                <div class="form-group form-group-flex">
+                  <label for="sub-input-url">订阅链接</label>
+                  <input type="url" id="sub-input-url" placeholder="https://..." autocomplete="off">
+                </div>
+                <div class="form-group-btn">
+                  <button class="btn-action btn-primary-action" id="btn-add-sub">导入</button>
+                  <button class="btn-action" id="btn-cancel-inline-sub" type="button">取消</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Airport List Container -->
+            <div class="airports-list-grid" id="airports-list-container">
+              <div class="loading-state">加载机场列表中...</div>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -191,7 +193,7 @@
         </div>
         <div class="preview-banner-actions">
           <button class="btn-action btn-primary-action" id="btn-preview-activate" type="button">
-            <span>使用此机场出站</span>
+            <span>启用此机场出站</span>
           </button>
           <button class="btn-action" id="btn-preview-exit" type="button">
             <span>退出预览</span>
@@ -554,6 +556,6 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="app.js?v=2.2"></script>
+  <script src="app.js?v=2.3"></script>
 </body>
 </html>
