@@ -3,13 +3,24 @@
  * Ultra-Lightweight, Zero-Emoji, Zero-Icon-With-Text, Fully Fluid Layout
  */
 
+function cleanGroupName(name) {
+  if (!name) return '';
+  return name.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').trim().toLowerCase();
+}
+
 const state = {
   currentView: 'dashboard',
   status: null,
   profiles: [],
   subscriptions: [],
   groups: [],
-  activeGroupName: '',
+  activeGroupName: (() => {
+    try {
+      return localStorage.getItem('last_active_group_name') || '';
+    } catch (e) {
+      return '';
+    }
+  })(),
   searchQuery: '',
   delays: {},
   logs: [],
@@ -732,11 +743,39 @@ async function fetchProxies() {
     state.groups = data.groups || [];
 
     if (state.groups.length > 0) {
-      const exists = state.groups.some(g => g.name === state.activeGroupName);
-      if (!exists || !state.activeGroupName) {
-        const primaryG = state.groups.find(g => g.name === state.status?.primary_group);
-        state.activeGroupName = primaryG ? primaryG.name : state.groups[0].name;
+      let savedGroup = '';
+      try {
+        savedGroup = localStorage.getItem('last_active_group_name') || '';
+      } catch (e) {}
+
+      // 1. Try matching the currently active group in memory
+      let matched = state.groups.find(g => g.name === state.activeGroupName);
+
+      // 2. Try matching the saved group from localStorage
+      if (!matched && savedGroup) {
+        matched = state.groups.find(g => g.name === savedGroup);
       }
+
+      // 3. Try fuzzy/clean match with previously active or saved group
+      const targetNameToMatch = state.activeGroupName || savedGroup;
+      if (!matched && targetNameToMatch) {
+        const cleanTarget = cleanGroupName(targetNameToMatch);
+        if (cleanTarget) {
+          matched = state.groups.find(g => cleanGroupName(g.name) === cleanTarget);
+        }
+      }
+
+      // 4. Fallback to primary_group
+      if (!matched && state.status?.primary_group) {
+        matched = state.groups.find(g => g.name === state.status.primary_group);
+      }
+
+      // 5. Fallback to first group
+      state.activeGroupName = matched ? matched.name : state.groups[0].name;
+      try {
+        localStorage.setItem('last_active_group_name', state.activeGroupName);
+      } catch (e) {}
+
       renderGroups();
       renderNodes();
     } else {
@@ -1085,6 +1124,9 @@ function renderGroups() {
       const name = card.dataset.name;
       if (state.activeGroupName === name) return;
       state.activeGroupName = name;
+      try {
+        localStorage.setItem('last_active_group_name', name);
+      } catch (e) {}
       renderGroups();
       renderNodes();
     });
@@ -1122,7 +1164,7 @@ function renderNodes() {
     const activeClass = isCurrent ? 'active' : '';
     
     const delay = state.delays[node.name] !== undefined ? state.delays[node.name] : node.delay;
-    const { delayClass, delayText } = formatDelay(delay, node.type);
+    const { delayClass, delayText } = formatDelay(delay, node.type, state.isTestingLatency);
     const typeLabel = node.is_group ? (node.type || '策略组') : (node.type || 'Proxy');
 
     return `
@@ -1148,8 +1190,14 @@ function renderNodes() {
   });
 }
 
-// Latency text formatting (displays "未测速" instead of cryptic "-")
-function formatDelay(delay, type) {
+// Latency text formatting (displays dynamic dots during testing, "未测速" instead of cryptic "-")
+function formatDelay(delay, type, isTesting) {
+  if (isTesting && type !== 'Direct' && type !== 'Reject') {
+    return {
+      delayClass: 'testing',
+      delayText: '<span class="dots-loading"><span></span><span></span><span></span></span>',
+    };
+  }
   if (type === 'Direct') {
     return { delayClass: 'fast', delayText: '直连' };
   }
@@ -1465,7 +1513,7 @@ async function switchAirportProfile(filename, name) {
     state.isAirportSwitching = false;
     if (powerBtn) powerBtn.disabled = false;
     if (airportTrigger) airportTrigger.style.pointerEvents = 'auto';
-    state.activeGroupName = '';
+    // Preserve activeGroupName so fetchProxies can restore the same or equivalent group
     updateStatusUI();
     await fetchProxies();
     await fetchProfiles();
@@ -1572,6 +1620,9 @@ async function handleTestLatency() {
   btn.disabled = true;
   btnText.textContent = '测速中...';
 
+  // Immediately render nodes with dynamic pulsing 3-dots
+  renderNodes();
+
   const nodeNames = group.nodes.map(n => n.name);
   showToast(`开始测试 ${nodeNames.length} 个节点的延迟...`);
 
@@ -1587,7 +1638,6 @@ async function handleTestLatency() {
         state.delays[name] = resItem.delay;
       });
       showToast('测速完成');
-      renderNodes();
       fetchLogs();
     }
   } catch (err) {
@@ -1596,6 +1646,7 @@ async function handleTestLatency() {
     state.isTestingLatency = false;
     btn.disabled = false;
     btnText.textContent = '测速';
+    renderNodes();
   }
 }
 
@@ -2210,11 +2261,12 @@ async function handleTestWebSpeed() {
 
   const targets = getSpeedTargets();
 
+  const dotsHTML = '<span class="dots-loading"><span></span><span></span><span></span></span>';
   targets.forEach(t => {
     const el = document.getElementById(`speed-val-${t.id}`);
     if (el) {
       el.className = 'speed-val testing';
-      el.textContent = '...';
+      el.innerHTML = dotsHTML;
     }
   });
 
