@@ -39,6 +39,15 @@ const state = {
   pollTimer: null,
   pollIntervalSec: 5,
   isTestingLatency: false,
+  preview: {
+    active: false,
+    filename: '',
+    name: '',
+    groups: [],
+    activeGroupName: '',
+    delays: {},
+    isTestingLatency: false,
+  },
   isPowerTransitioning: false,
   isAirportSwitching: false,
   transitionTarget: '',
@@ -256,20 +265,51 @@ function setupEventListeners() {
     });
   }
 
-  // Subscription Modal open / close
-  const btnOpenSubs = document.getElementById('btn-open-subs');
-  if (btnOpenSubs) {
-    btnOpenSubs.addEventListener('click', openSubModal);
-  }
-  const btnCloseSubModal = document.getElementById('btn-close-sub-modal');
-  if (btnCloseSubModal) {
-    btnCloseSubModal.addEventListener('click', closeSubModal);
-  }
-  const modalSub = document.getElementById('modal-subscriptions');
-  if (modalSub) {
-    modalSub.addEventListener('click', (e) => {
-      if (e.target === modalSub) closeSubModal();
+  // Inline add subscription toggle
+  const btnToggleAddSub = document.getElementById('btn-toggle-add-sub');
+  const btnCancelInlineSub = document.getElementById('btn-cancel-inline-sub');
+  const subInlineForm = document.getElementById('sub-inline-form');
+  const toggleAddSubText = document.getElementById('toggle-add-sub-text');
+  if (btnToggleAddSub && subInlineForm) {
+    btnToggleAddSub.addEventListener('click', () => {
+      const isHidden = subInlineForm.style.display === 'none' || subInlineForm.style.display === '';
+      if (isHidden) {
+        subInlineForm.style.display = 'block';
+        if (toggleAddSubText) toggleAddSubText.textContent = '收起';
+        const urlInput = document.getElementById('sub-input-url');
+        if (urlInput) urlInput.focus();
+      } else {
+        subInlineForm.style.display = 'none';
+        if (toggleAddSubText) toggleAddSubText.textContent = '+ 添加订阅';
+      }
     });
+  }
+  if (btnCancelInlineSub && subInlineForm) {
+    btnCancelInlineSub.addEventListener('click', () => {
+      subInlineForm.style.display = 'none';
+      if (toggleAddSubText) toggleAddSubText.textContent = '+ 添加订阅';
+      const nameInput = document.getElementById('sub-input-name');
+      const urlInput = document.getElementById('sub-input-url');
+      if (nameInput) nameInput.value = '';
+      if (urlInput) urlInput.value = '';
+    });
+  }
+
+  // Preview banner actions
+  const btnPreviewActivate = document.getElementById('btn-preview-activate');
+  if (btnPreviewActivate) {
+    btnPreviewActivate.addEventListener('click', () => {
+      if (state.preview.active && state.preview.filename) {
+        const fn = state.preview.filename;
+        const name = state.preview.name;
+        handleExitPreview();
+        switchAirportProfile(fn, name);
+      }
+    });
+  }
+  const btnPreviewExit = document.getElementById('btn-preview-exit');
+  if (btnPreviewExit) {
+    btnPreviewExit.addEventListener('click', handleExitPreview);
   }
 
   // Add Subscription button
@@ -639,6 +679,7 @@ async function refreshAll() {
   await Promise.all([
     fetchStatus(),
     fetchProfiles(),
+    fetchSubscriptions(),
     fetchProxies(),
     fetchLogs(),
   ]);
@@ -1023,73 +1064,179 @@ function renderAirportItemHTML(s, isDropdown = false) {
   `;
 }
 
-function toggleAirportDropdown(e) {
-  if (e) e.stopPropagation();
-  const dropdown = document.getElementById('airport-custom-dropdown');
-  const wrap = document.getElementById('airport-custom-select-wrap');
-  if (!dropdown || !wrap) return;
-  const isOpen = dropdown.style.display !== 'none';
-  if (isOpen) {
-    dropdown.style.display = 'none';
-    wrap.classList.remove('open');
-  } else {
-    dropdown.style.display = 'block';
-    wrap.classList.add('open');
-  }
-}
+// Render airport items in the dedicated long module
+function renderAirportsModule() {
+  const container = document.getElementById('airports-list-container');
+  const countBadge = document.getElementById('airport-count-badge');
+  if (!container) return;
 
-function closeAirportDropdown() {
-  const dropdown = document.getElementById('airport-custom-dropdown');
-  const wrap = document.getElementById('airport-custom-select-wrap');
-  if (dropdown) dropdown.style.display = 'none';
-  if (wrap) wrap.classList.remove('open');
-}
+  const airports = (state.subscriptions && state.subscriptions.length > 0)
+    ? state.subscriptions
+    : (state.profiles || []);
 
-async function handleSelectAirport(filename, name) {
-  closeAirportDropdown();
-  closeSubModal();
-  await switchAirportProfile(filename, name);
-}
-
-// Airport profiles rendering: all valid airport configurations
-function renderProfiles() {
-  const titleEl = document.getElementById('airport-card-title');
-  const triggerName = document.getElementById('airport-trigger-name');
-  const triggerMeta = document.getElementById('airport-trigger-meta');
-  const optionsContainer = document.getElementById('airport-custom-options');
-
-  const airports = state.profiles || [];
-
-  if (titleEl) {
-    titleEl.textContent = `选择机场(总数${airports.length})`;
+  if (countBadge) {
+    countBadge.textContent = `${airports.length} 个机场`;
   }
 
   if (airports.length === 0) {
-    const isClashOnline = state.status && state.status.clash_online;
-    if (triggerName) triggerName.textContent = isClashOnline ? '暂无可用机场配置' : '等待服务启动...';
-    if (triggerMeta) triggerMeta.textContent = '';
-    if (optionsContainer) optionsContainer.innerHTML = '<div class="empty-state">暂无可用机场配置</div>';
+    container.innerHTML = `<div class="empty-state" style="padding: 24px 0;">暂无机场配置，请点击上方“+ 添加订阅”或“上传 YAML”导入</div>`;
     return;
   }
 
-  // Find active profile
-  const activeProfile = airports.find(p => p.is_active) || airports[0];
-  if (triggerName && activeProfile) {
-    triggerName.textContent = activeProfile.name || '已选机场';
-    const isSub = Boolean(activeProfile.url && activeProfile.url.length > 0);
-    const domain = activeProfile.domain || extractDomain(activeProfile.url);
-    const relTime = formatRelativeTime(activeProfile.updated_at);
-    let parts = [];
-    if (isSub && domain) parts.push(domain);
-    if (activeProfile.usage_text) parts.push(activeProfile.usage_text);
-    else if (relTime) parts.push(relTime);
-    if (triggerMeta) triggerMeta.textContent = parts.join(' | ');
+  container.innerHTML = airports.map(s => {
+    const isActive = Boolean(s.is_active);
+    const isPreviewing = state.preview.active && (state.preview.filename === (s.filename || s.name));
+    const activeClass = isActive ? 'active' : (isPreviewing ? 'previewing' : '');
+    const isSub = Boolean(s.url && s.url.length > 0);
+    const domain = s.domain || (isSub ? extractDomain(s.url) : '');
+    const relativeTime = formatRelativeTime(s.updated_at);
+    const sizeStr = s.size ? formatBytes(s.size) : '';
+    const usageStr = s.usage_text || '';
+
+    let metaParts = [];
+    if (domain) metaParts.push(escapeHTML(domain));
+    if (s.filename) metaParts.push(escapeHTML(s.filename));
+    if (sizeStr) metaParts.push(sizeStr);
+    if (relativeTime) metaParts.push(relativeTime);
+    if (usageStr) metaParts.push(escapeHTML(usageStr));
+
+    const metaHTML = metaParts.join(' · ');
+
+    let badgeHTML = '';
+    if (isActive) {
+      badgeHTML = '<span class="airport-badge badge-active">当前使用中</span>';
+    } else if (isPreviewing) {
+      badgeHTML = '<span class="airport-badge badge-preview">预览中</span>';
+    } else {
+      badgeHTML = '<span class="airport-badge badge-idle">备用</span>';
+    }
+
+    return `
+      <div class="airport-row-card ${activeClass}" data-filename="${escapeHTML(s.filename || s.name)}">
+        <div class="airport-row-left">
+          <div class="airport-status-dot ${isActive ? 'dot-active' : (isPreviewing ? 'dot-preview' : 'dot-idle')}"></div>
+          <div class="airport-row-info">
+            <div class="airport-row-title-line">
+              <span class="airport-name">${escapeHTML(s.name)}</span>
+              ${badgeHTML}
+            </div>
+            <div class="airport-row-meta">
+              ${metaHTML}
+            </div>
+          </div>
+        </div>
+
+        <div class="airport-row-actions">
+          ${!isActive ? `
+            <button class="btn-action btn-sm-action btn-primary-action" onclick="handleSelectAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+              <span>使用此机场</span>
+            </button>
+          ` : `
+            <span class="airport-current-hint">当前出站</span>
+          `}
+
+          ${isPreviewing ? `
+            <button class="btn-action btn-sm-action" onclick="handleExitPreview()">
+              <span>退出预览</span>
+            </button>
+          ` : `
+            <button class="btn-action btn-sm-action" onclick="handlePreviewAirport('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+              <span>预览</span>
+            </button>
+          `}
+
+          ${isSub ? `
+            <button class="btn-action btn-sm-action" title="同步更新此订阅" onclick="handleUpdateSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+              <span>更新</span>
+            </button>
+          ` : ''}
+
+          ${!isActive ? `
+            <button class="btn-action btn-sm-action btn-danger-action" title="删除此机场配置" onclick="handleDeleteSub('${escapeHTML(s.filename || s.name)}', '${escapeHTML(s.name)}')">
+              <span>删除</span>
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderProfiles() {
+  renderAirportsModule();
+}
+
+async function handlePreviewAirport(filename, name) {
+  if (state.preview.active && state.preview.filename === filename) {
+    return;
   }
 
-  // Render dropdown items using shared renderAirportItemHTML
-  if (optionsContainer) {
-    optionsContainer.innerHTML = airports.map(p => renderAirportItemHTML(p, true)).join('');
+  showToast(`正在读取机场 [${name}] 配置并生成预览...`);
+  try {
+    const res = await fetch(`/api/profiles/preview?filename=${encodeURIComponent(filename)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    state.preview = {
+      active: true,
+      filename: data.filename || filename,
+      name: data.name || name,
+      groups: data.groups || [],
+      activeGroupName: (data.groups && data.groups.length > 0) ? data.groups[0].name : '',
+      delays: {},
+      isTestingLatency: false,
+    };
+
+    updatePreviewBanner();
+    renderAirportsModule();
+    renderGroups();
+    renderNodes();
+
+    showToast(`已开启 [${state.preview.name}] 预览模式（未激活，全屋当前网络不中断）`);
+  } catch (err) {
+    showToast(`预览失败: ${err.message}`);
   }
+}
+
+function handleExitPreview() {
+  if (!state.preview.active) return;
+  state.preview = {
+    active: false,
+    filename: '',
+    name: '',
+    groups: [],
+    activeGroupName: '',
+    delays: {},
+    isTestingLatency: false,
+  };
+  updatePreviewBanner();
+  renderAirportsModule();
+  renderGroups();
+  renderNodes();
+  showToast('已退出预览模式，恢复当前运行中的机场配置');
+}
+
+function updatePreviewBanner() {
+  const banner = document.getElementById('preview-active-banner');
+  const nameEl = document.getElementById('preview-airport-name');
+  if (!banner) return;
+  if (state.preview.active) {
+    if (nameEl) nameEl.textContent = state.preview.name;
+    banner.style.display = 'flex';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+async function handleSelectAirport(filename, name) {
+  if (state.preview.active) {
+    state.preview.active = false;
+    updatePreviewBanner();
+  }
+  closeSubModal();
+  await switchAirportProfile(filename, name);
 }
 
 // Strategy Groups Rendering (Displayed as boxes above "切换节点")
@@ -1097,13 +1244,16 @@ function renderGroups() {
   const container = document.getElementById('groups-grid');
   if (!container) return;
 
-  if (!state.groups || state.groups.length === 0) {
-    container.innerHTML = '<div class="empty-state">当前无可用配置组</div>';
+  const groups = state.preview.active ? state.preview.groups : state.groups;
+  const activeGroupName = state.preview.active ? state.preview.activeGroupName : state.activeGroupName;
+
+  if (!groups || groups.length === 0) {
+    container.innerHTML = `<div class="empty-state">${state.preview.active ? '预览机场无可用配置组' : '当前无可用配置组'}</div>`;
     return;
   }
 
-  container.innerHTML = state.groups.map(g => {
-    const isCurrentActive = g.name === state.activeGroupName;
+  container.innerHTML = groups.map(g => {
+    const isCurrentActive = g.name === activeGroupName;
     const activeClass = isCurrentActive ? 'active' : '';
     return `
       <div class="group-card ${activeClass}" data-name="${escapeHTML(g.name)}">
@@ -1122,13 +1272,20 @@ function renderGroups() {
   container.querySelectorAll('.group-card').forEach(card => {
     card.addEventListener('click', () => {
       const name = card.dataset.name;
-      if (state.activeGroupName === name) return;
-      state.activeGroupName = name;
-      try {
-        localStorage.setItem('last_active_group_name', name);
-      } catch (e) {}
-      renderGroups();
-      renderNodes();
+      if (state.preview.active) {
+        if (state.preview.activeGroupName === name) return;
+        state.preview.activeGroupName = name;
+        renderGroups();
+        renderNodes();
+      } else {
+        if (state.activeGroupName === name) return;
+        state.activeGroupName = name;
+        try {
+          localStorage.setItem('last_active_group_name', name);
+        } catch (e) {}
+        renderGroups();
+        renderNodes();
+      }
     });
   });
 }
@@ -1136,17 +1293,21 @@ function renderGroups() {
 // Proxy Nodes Rendering
 function renderNodes() {
   const container = document.getElementById('nodes-grid');
-  const group = state.groups.find(g => g.name === state.activeGroupName) || state.groups[0];
   const sectionTitle = document.getElementById('nodes-section-title');
 
+  const isPreview = state.preview.active;
+  const groups = isPreview ? state.preview.groups : state.groups;
+  const activeGroupName = isPreview ? state.preview.activeGroupName : state.activeGroupName;
+  const group = groups.find(g => g.name === activeGroupName) || groups[0];
+
   if (!group || !group.nodes || group.nodes.length === 0) {
-    if (sectionTitle) sectionTitle.textContent = '切换节点';
+    if (sectionTitle) sectionTitle.textContent = isPreview ? '预览节点' : '切换节点';
     container.innerHTML = `<div class="empty-state">当前配置组无可用节点</div>`;
     return;
   }
 
   if (sectionTitle) {
-    sectionTitle.textContent = `切换节点 (${group.name})`;
+    sectionTitle.textContent = isPreview ? `预览节点 (${group.name}) · 预览模式` : `切换节点 (${group.name})`;
   }
 
   let filtered = group.nodes;
@@ -1159,12 +1320,15 @@ function renderNodes() {
     return;
   }
 
+  const isTesting = isPreview ? state.preview.isTestingLatency : state.isTestingLatency;
+  const delays = isPreview ? state.preview.delays : state.delays;
+
   container.innerHTML = filtered.map(node => {
     const isCurrent = node.name === group.current;
     const activeClass = isCurrent ? 'active' : '';
     
-    const delay = state.delays[node.name] !== undefined ? state.delays[node.name] : node.delay;
-    const { delayClass, delayText } = formatDelay(delay, node.type, state.isTestingLatency);
+    const delay = delays[node.name] !== undefined ? delays[node.name] : node.delay;
+    const { delayClass, delayText } = formatDelay(delay, node.type, isTesting);
     const typeLabel = node.is_group ? (node.type || '策略组') : (node.type || 'Proxy');
 
     return `
@@ -1184,6 +1348,10 @@ function renderNodes() {
     card.addEventListener('click', async () => {
       const gName = card.dataset.group;
       const nName = card.dataset.name;
+      if (state.preview.active) {
+        showToast('当前为预览模式，点击上方“使用此机场出站”生效后方可切换');
+        return;
+      }
       if (card.classList.contains('active')) return;
       await selectNode(gName, nName);
     });
@@ -1604,21 +1772,30 @@ async function selectNode(groupName, name) {
   }
 }
 
-// Latency Testing
+// Latency Testing (supports both active and preview modes)
 async function handleTestLatency() {
-  if (state.isTestingLatency) return;
+  const isPreview = state.preview.active;
+  if (isPreview ? state.preview.isTestingLatency : state.isTestingLatency) return;
 
-  const group = state.groups.find(g => g.name === state.activeGroupName) || state.groups[0];
+  const groups = isPreview ? state.preview.groups : state.groups;
+  const activeGroupName = isPreview ? state.preview.activeGroupName : state.activeGroupName;
+  const group = groups.find(g => g.name === activeGroupName) || groups[0];
+
   if (!group || !group.nodes || group.nodes.length === 0) {
     showToast('当前策略组无可用节点可供测速');
     return;
   }
 
-  state.isTestingLatency = true;
   const btn = document.getElementById('btn-test-latency');
   const btnText = document.getElementById('test-latency-text');
-  btn.disabled = true;
-  btnText.textContent = '测速中...';
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.textContent = '测速中...';
+
+  if (isPreview) {
+    state.preview.isTestingLatency = true;
+  } else {
+    state.isTestingLatency = true;
+  }
 
   // Immediately render nodes with dynamic pulsing 3-dots
   renderNodes();
@@ -1627,25 +1804,44 @@ async function handleTestLatency() {
   showToast(`开始测试 ${nodeNames.length} 个节点的延迟...`);
 
   try {
-    const res = await fetch('/api/proxies/delay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes: nodeNames }),
-    });
-    const data = await res.json();
-    if (data.results) {
-      Object.entries(data.results).forEach(([name, resItem]) => {
-        state.delays[name] = resItem.delay;
+    if (isPreview) {
+      const res = await fetch('/api/profiles/preview/delay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: state.preview.filename, nodes: nodeNames }),
       });
-      showToast('测速完成');
-      fetchLogs();
+      const data = await res.json();
+      if (data.results) {
+        Object.entries(data.results).forEach(([name, delay]) => {
+          state.preview.delays[name] = delay;
+        });
+        showToast('预览节点测速完成');
+      }
+    } else {
+      const res = await fetch('/api/proxies/delay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodes: nodeNames }),
+      });
+      const data = await res.json();
+      if (data.results) {
+        Object.entries(data.results).forEach(([name, resItem]) => {
+          state.delays[name] = resItem.delay;
+        });
+        showToast('测速完成');
+        fetchLogs();
+      }
     }
   } catch (err) {
     showToast('测速异常: ' + err.message);
   } finally {
-    state.isTestingLatency = false;
-    btn.disabled = false;
-    btnText.textContent = '测速';
+    if (isPreview) {
+      state.preview.isTestingLatency = false;
+    } else {
+      state.isTestingLatency = false;
+    }
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = '测速';
     renderNodes();
   }
 }
@@ -1898,6 +2094,7 @@ async function fetchSubscriptions() {
     const data = await res.json();
     state.subscriptions = data.subscriptions || [];
     renderSubscriptions();
+    renderAirportsModule();
   } catch (err) {
     console.error('Fetch subscriptions error:', err);
     if (container) {
@@ -1981,6 +2178,10 @@ async function executeAddSubscription(name, url, allowGlobal = false) {
       showToast(`订阅 [${addedName}] 导入成功`);
       if (nameInput) nameInput.value = '';
       if (urlInput) urlInput.value = '';
+      const inlineForm = document.getElementById('sub-inline-form');
+      const toggleText = document.getElementById('toggle-add-sub-text');
+      if (inlineForm) inlineForm.style.display = 'none';
+      if (toggleText) toggleText.textContent = '+ 添加订阅';
       await fetchSubscriptions();
       await fetchProfiles();
       fetchLogs();
@@ -2377,6 +2578,8 @@ function initSpeedTimeAgo() {
 }
 
 // Attach action functions to window for onclick handlers
+window.handlePreviewAirport = handlePreviewAirport;
+window.handleExitPreview = handleExitPreview;
 window.handleSelectAirport = handleSelectAirport;
 window.handleSwitchSub = handleSwitchSub;
 window.handleUpdateSub = handleUpdateSub;

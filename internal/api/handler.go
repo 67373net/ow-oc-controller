@@ -453,6 +453,59 @@ func (h *Handler) SwitchProfile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// PreviewProfile returns parsed groups and nodes of any profile without activating it
+func (h *Handler) PreviewProfile(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.writeError(w, http.StatusBadRequest, "filename parameter required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	preview, err := h.sub.Preview(ctx, filename)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, preview)
+}
+
+type TestPreviewDelayRequest struct {
+	Filename string   `json:"filename"`
+	Nodes    []string `json:"nodes"`
+	Timeout  int      `json:"timeout"`
+}
+
+// TestPreviewDelay tests latency for nodes in a previewed profile without switching OpenClash
+func (h *Handler) TestPreviewDelay(w http.ResponseWriter, r *http.Request) {
+	var req TestPreviewDelayRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Filename == "" || len(req.Nodes) == 0 {
+		h.writeError(w, http.StatusBadRequest, "invalid request parameters")
+		return
+	}
+
+	timeoutMs := req.Timeout
+	if timeoutMs <= 0 {
+		timeoutMs = 3000
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutMs+2000)*time.Millisecond)
+	defer cancel()
+
+	results, err := h.sub.TestPreviewDelay(ctx, req.Filename, req.Nodes, time.Duration(timeoutMs)*time.Millisecond)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]any{
+		"results": results,
+	})
+}
+
 type UpdateProviderRequest struct {
 	Name string `json:"name"`
 }

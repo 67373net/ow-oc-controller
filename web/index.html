@@ -76,54 +76,29 @@
     <div id="view-dashboard" class="view-panel active">
       <!-- Top Control Banner -->
       <section class="overview-section">
-        <!-- Card 1: Power Switch -->
-        <div class="overview-card power-card">
-          <div class="power-info">
+        <!-- Combined Card: Power Switch & Outbound Exit Node -->
+        <div class="overview-card power-outbound-card">
+          <div class="power-col">
             <div class="card-label">服务总开关</div>
-            <div class="power-status-value" id="power-status-display">检测中...</div>
+            <div class="power-row">
+              <div class="power-status-value" id="power-status-display">检测中...</div>
+              <button class="btn-power" id="btn-power-toggle">
+                <span id="power-btn-text">切换开关</span>
+              </button>
+            </div>
             <div class="power-meta-info" id="power-meta">模式: - | 路由: -</div>
           </div>
-          <div class="power-action">
-            <button class="btn-power" id="btn-power-toggle">
-              <span id="power-btn-text">切换开关</span>
-            </button>
+
+          <div class="card-divider"></div>
+
+          <div class="outbound-col">
+            <div class="card-label">当前出口节点</div>
+            <div class="card-highlight" id="active-node-display">-</div>
+            <div class="card-meta" id="active-group-meta">策略组: -</div>
           </div>
         </div>
 
-        <!-- Card 2: Airport Selection Dropdown Menu (Symmetrical with Card 1) -->
-        <div class="overview-card power-card airport-card">
-          <div class="power-info" style="flex: 1; min-width: 0; margin-right: 12px;">
-            <div class="card-label" id="airport-card-title">选择机场(总数0)</div>
-            <div class="airport-custom-select-wrap" id="airport-custom-select-wrap">
-              <div class="airport-custom-trigger" id="airport-custom-trigger" tabindex="0">
-                <div class="airport-trigger-info">
-                  <span class="airport-trigger-name" id="airport-trigger-name">加载中...</span>
-                  <span class="airport-trigger-meta" id="airport-trigger-meta"></span>
-                </div>
-                <span class="airport-trigger-arrow">▼</span>
-              </div>
-              <div class="airport-custom-dropdown" id="airport-custom-dropdown" style="display: none;">
-                <div class="sub-list" id="airport-custom-options">
-                  <div class="loading-state">加载机场列表中...</div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="power-action">
-            <button class="btn-power btn-secondary-power" id="btn-open-subs">
-              <span>管理订阅</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Card 3: Outbound Node Display -->
-        <div class="overview-card info-card">
-          <div class="card-label">当前出口节点</div>
-          <div class="card-highlight" id="active-node-display">-</div>
-          <div class="card-meta" id="active-group-meta">策略组: -</div>
-        </div>
-
-        <!-- Card 4: Network Speed Test -->
+        <!-- Card 2: Network Speed Test -->
         <div class="overview-card speed-card">
           <div class="card-header-row">
             <div class="card-label">网络测速 <span class="speed-time-ago" id="speed-time-ago"></span></div>
@@ -156,6 +131,73 @@
           </div>
         </div>
       </section>
+
+      <!-- Airport Subscriptions Section (Dedicated Long Module) -->
+      <section class="section-container airports-section" id="airports-section">
+        <div class="section-header">
+          <div class="section-header-left">
+            <div class="section-title">
+              <h2>机场与订阅</h2>
+              <span class="section-count-badge" id="airport-count-badge">0 个机场</span>
+            </div>
+          </div>
+
+          <div class="section-actions">
+            <button class="btn-action" id="btn-toggle-add-sub" type="button">
+              <span id="toggle-add-sub-text">+ 添加订阅</span>
+            </button>
+            <button class="btn-action" id="btn-upload-yaml-trigger" type="button">
+              <span>上传 YAML</span>
+            </button>
+            <input type="file" id="file-upload-yaml" accept=".yaml,.yml" style="display: none;">
+            <button class="btn-action" id="btn-batch-update-subs" type="button">
+              <span id="batch-update-btn-text">批量更新</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Inline Add/Import Form (expandable) -->
+        <div class="sub-inline-form-card" id="sub-inline-form" style="display: none;">
+          <div class="sub-form-row">
+            <div class="form-group form-group-name">
+              <label for="sub-input-name">机场名称 (可选)</label>
+              <input type="text" id="sub-input-name" placeholder="例如: 主力机场" autocomplete="off">
+            </div>
+            <div class="form-group form-group-flex">
+              <label for="sub-input-url">订阅链接</label>
+              <input type="url" id="sub-input-url" placeholder="https://..." autocomplete="off">
+            </div>
+            <div class="form-group-btn">
+              <button class="btn-action btn-primary-action" id="btn-add-sub">导入</button>
+              <button class="btn-action" id="btn-cancel-inline-sub" type="button">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Airport List Container -->
+        <div class="airports-list-grid" id="airports-list-container">
+          <div class="loading-state">加载机场列表中...</div>
+        </div>
+      </section>
+
+      <!-- Airport Preview Active Banner -->
+      <div class="preview-active-banner" id="preview-active-banner" style="display: none;">
+        <div class="preview-banner-content">
+          <div class="preview-banner-badge">预览模式</div>
+          <div class="preview-banner-text">
+            正在静默预览: <strong id="preview-airport-name">-</strong>
+            <span class="preview-subtext">(未激活，全屋当前网络不中断)</span>
+          </div>
+        </div>
+        <div class="preview-banner-actions">
+          <button class="btn-action btn-primary-action" id="btn-preview-activate" type="button">
+            <span>使用此机场出站</span>
+          </button>
+          <button class="btn-action" id="btn-preview-exit" type="button">
+            <span>退出预览</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Operating Mode Notice Banner (Shown if SSH is not configured) -->
       <div class="notice-banner" id="ssh-notice-card" style="display: none;">
@@ -390,50 +432,7 @@
     </div>
   </main>
 
-  <!-- Modal: Subscription Manager -->
-  <div class="modal-overlay" id="modal-subscriptions" style="display: none;">
-    <div class="modal-dialog">
-      <div class="modal-header">
-        <h3 class="modal-title">订阅与机场管理</h3>
-        <button class="btn-modal-close" id="btn-close-sub-modal">关闭</button>
-      </div>
 
-      <div class="modal-body">
-        <!-- Add Subscription Form -->
-        <div class="sub-form-card">
-          <div class="sub-form-title">添加新订阅</div>
-          <div class="sub-form-row">
-            <div class="form-group">
-              <label for="sub-input-name">名称</label>
-              <input type="text" id="sub-input-name" placeholder="可选" autocomplete="off">
-            </div>
-            <div class="form-group form-group-flex">
-              <label for="sub-input-url">链接</label>
-              <input type="url" id="sub-input-url" placeholder="https://..." autocomplete="off">
-            </div>
-            <div class="form-group-btn" style="display: flex; gap: 8px;">
-              <button class="btn-action btn-primary-action" id="btn-add-sub">导入</button>
-              <button class="btn-action" id="btn-upload-yaml-trigger" type="button">上传 YAML</button>
-              <input type="file" id="file-upload-yaml" accept=".yaml,.yml" style="display: none;">
-            </div>
-          </div>
-        </div>
-
-        <!-- Subscriptions List -->
-        <div class="sub-list-section">
-          <div class="sub-list-header-row">
-            <div class="sub-list-title">配置</div>
-            <button class="btn-action btn-sm-action" id="btn-batch-update-subs">
-              <span id="batch-update-btn-text">批量更新</span>
-            </button>
-          </div>
-          <div class="sub-list" id="sub-list-container">
-            <div class="loading-state">加载订阅列表中...</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Modal: Speed Test Target Config -->
   <div class="modal-overlay" id="modal-speed-config" style="display: none;">

@@ -71,6 +71,8 @@ func main() {
 	mux.HandleFunc("POST /api/power", apiHandler.HandlePower)
 	mux.HandleFunc("GET /api/profiles", apiHandler.ListProfiles)
 	mux.HandleFunc("POST /api/profiles/switch", apiHandler.SwitchProfile)
+	mux.HandleFunc("GET /api/profiles/preview", apiHandler.PreviewProfile)
+	mux.HandleFunc("POST /api/profiles/preview/delay", apiHandler.TestPreviewDelay)
 	mux.HandleFunc("POST /api/profiles/update", apiHandler.UpdateProvider)
 	mux.HandleFunc("GET /api/subscriptions", apiHandler.ListSubscriptions)
 	mux.HandleFunc("POST /api/subscriptions/add", apiHandler.AddSubscription)

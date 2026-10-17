@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/67373net/ow-oc-controller/internal/clash"
 	"github.com/67373net/ow-oc-controller/internal/logger"
@@ -1110,4 +1113,297 @@ func (m *Manager) Delete(ctx context.Context, nameOrFile string) error {
 
 	m.log.Success("SUBSCRIPTION", fmt.Sprintf("配置文件 [%s] 已删除", filename))
 	return nil
+}
+
+// NodeInfo represents an individual proxy node within a previewed profile
+type NodeInfo struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Server  string `json:"server,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	TLS     bool   `json:"tls,omitempty"`
+	SNI     string `json:"sni,omitempty"`
+	IsGroup bool   `json:"is_group"`
+	Delay   int    `json:"delay"`
+}
+
+// GroupInfo represents a proxy policy group within a previewed profile
+type GroupInfo struct {
+	Name    string     `json:"name"`
+	Type    string     `json:"type"`
+	Current string     `json:"current"`
+	Nodes   []NodeInfo `json:"nodes"`
+}
+
+// ProfilePreview represents the parsed structure of a profile for non-switching preview
+type ProfilePreview struct {
+	Filename    string      `json:"filename"`
+	Name        string      `json:"name"`
+	IsActive    bool        `json:"is_active"`
+	TotalNodes  int         `json:"total_nodes"`
+	TotalGroups int         `json:"total_groups"`
+	Groups      []GroupInfo `json:"groups"`
+	RawNodes    []NodeInfo  `json:"raw_nodes,omitempty"`
+}
+
+// GetProfileYAML returns the raw YAML content of a profile by filename
+func (m *Manager) GetProfileYAML(ctx context.Context, filename string) ([]byte, error) {
+	cleanName := filepath.Clean(filepath.Base(filename))
+	if !strings.HasSuffix(cleanName, ".yaml") && !strings.HasSuffix(cleanName, ".yml") {
+		cleanName += ".yaml"
+	}
+	localPath := filepath.Join(m.localDir, cleanName)
+
+	// 1. Try local cache
+	if data, err := os.ReadFile(localPath); err == nil && len(data) > 0 {
+		return data, nil
+	}
+
+	// 2. Try OpenWrt if configured
+	if m.openwrt != nil && m.openwrt.IsConfigured() {
+		remotePath := fmt.Sprintf("/etc/openclash/config/%s", cleanName)
+		if data, err := m.openwrt.ReadFile(ctx, remotePath); err == nil && len(data) > 0 {
+			_ = os.WriteFile(localPath, data, 0644)
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("未找到配置文件: %s", cleanName)
+}
+
+// Preview parses a profile's groups and nodes without activating it
+func (m *Manager) Preview(ctx context.Context, filename string) (*ProfilePreview, error) {
+	data, err := m.GetProfileYAML(ctx, filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw struct {
+		Proxies     []map[string]interface{} `yaml:"proxies"`
+		ProxyGroups []struct {
+			Name     string   `yaml:"name"`
+			Type     string   `yaml:"type"`
+			Proxies  []string `yaml:"proxies"`
+			Use      []string `yaml:"use"`
+			Filter   string   `yaml:"filter"`
+			URL      string   `yaml:"url"`
+			Interval int      `yaml:"interval"`
+		} `yaml:"proxy-groups"`
+	}
+
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("YAML 格式解析失败: %w", err)
+	}
+
+	cleanBase := filepath.Clean(filepath.Base(filename))
+	profileName := strings.TrimSuffix(cleanBase, filepath.Ext(cleanBase))
+
+	// Determine if this profile is currently active in OpenClash
+	isActive := false
+	m.mu.RLock()
+	if it, ok := m.items[cleanBase]; ok {
+		if it.Name != "" {
+			profileName = it.Name
+		}
+		isActive = it.IsActive
+	}
+	m.mu.RUnlock()
+
+	nodeMap := make(map[string]NodeInfo)
+	rawNodes := make([]NodeInfo, 0, len(raw.Proxies))
+
+	for _, p := range raw.Proxies {
+		name, _ := p["name"].(string)
+		if name == "" {
+			continue
+		}
+		pType, _ := p["type"].(string)
+		server, _ := p["server"].(string)
+		var port int
+		if pt, ok := p["port"].(int); ok {
+			port = pt
+		} else if pt, ok := p["port"].(float64); ok {
+			port = int(pt)
+		}
+		tlsVal, _ := p["tls"].(bool)
+		sniVal, _ := p["sni"].(string)
+		if sniVal == "" {
+			sniVal, _ = p["servername"].(string)
+		}
+
+		node := NodeInfo{
+			Name:    name,
+			Type:    pType,
+			Server:  server,
+			Port:    port,
+			TLS:     tlsVal,
+			SNI:     sniVal,
+			IsGroup: false,
+			Delay:   0,
+		}
+		nodeMap[name] = node
+		rawNodes = append(rawNodes, node)
+	}
+
+	groupSet := make(map[string]bool)
+	for _, g := range raw.ProxyGroups {
+		if g.Name != "" {
+			groupSet[g.Name] = true
+		}
+	}
+
+	groups := make([]GroupInfo, 0, len(raw.ProxyGroups))
+	for _, g := range raw.ProxyGroups {
+		if g.Name == "" {
+			continue
+		}
+		gNodes := make([]NodeInfo, 0, len(g.Proxies))
+		for _, pName := range g.Proxies {
+			if groupSet[pName] {
+				gNodes = append(gNodes, NodeInfo{
+					Name:    pName,
+					Type:    "策略组",
+					IsGroup: true,
+					Delay:   0,
+				})
+			} else if n, ok := nodeMap[pName]; ok {
+				gNodes = append(gNodes, n)
+			} else if strings.EqualFold(pName, "DIRECT") {
+				gNodes = append(gNodes, NodeInfo{Name: "DIRECT", Type: "Direct", IsGroup: false, Delay: 0})
+			} else if strings.EqualFold(pName, "REJECT") {
+				gNodes = append(gNodes, NodeInfo{Name: "REJECT", Type: "Reject", IsGroup: false, Delay: 0})
+			} else {
+				gNodes = append(gNodes, NodeInfo{Name: pName, Type: "Proxy", IsGroup: false, Delay: 0})
+			}
+		}
+
+		current := ""
+		if len(gNodes) > 0 {
+			current = gNodes[0].Name
+		}
+
+		groups = append(groups, GroupInfo{
+			Name:    g.Name,
+			Type:    g.Type,
+			Current: current,
+			Nodes:   gNodes,
+		})
+	}
+
+	// Fallback if no proxy groups are defined (pure nodes profile)
+	if len(groups) == 0 && len(rawNodes) > 0 {
+		current := ""
+		if len(rawNodes) > 0 {
+			current = rawNodes[0].Name
+		}
+		groups = append(groups, GroupInfo{
+			Name:    "所有节点",
+			Type:    "select",
+			Current: current,
+			Nodes:   rawNodes,
+		})
+	}
+
+	return &ProfilePreview{
+		Filename:    cleanBase,
+		Name:        profileName,
+		IsActive:    isActive,
+		TotalNodes:  len(nodeMap),
+		TotalGroups: len(groups),
+		Groups:      groups,
+		RawNodes:    rawNodes,
+	}, nil
+}
+
+// TestPreviewDelay tests latency for specific nodes in a previewed profile without switching OpenClash
+func (m *Manager) TestPreviewDelay(ctx context.Context, filename string, nodeNames []string, timeout time.Duration) (map[string]int, error) {
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+
+	preview, err := m.Preview(ctx, filename)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeMap := make(map[string]NodeInfo)
+	for _, n := range preview.RawNodes {
+		nodeMap[n.Name] = n
+	}
+
+	results := make(map[string]int)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 15)
+
+	for _, name := range nodeNames {
+		node, ok := nodeMap[name]
+		if !ok || node.IsGroup || strings.EqualFold(node.Type, "Direct") || strings.EqualFold(node.Type, "Reject") {
+			continue
+		}
+
+		wg.Add(1)
+		go func(n NodeInfo) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			if n.Server == "" || n.Port <= 0 {
+				mu.Lock()
+				results[n.Name] = -1
+				mu.Unlock()
+				return
+			}
+
+			delay, err := testNodeRTT(ctx, n.Server, n.Port, n.TLS, n.SNI, timeout)
+			mu.Lock()
+			if err != nil {
+				results[n.Name] = -1
+			} else {
+				results[n.Name] = delay
+			}
+			mu.Unlock()
+		}(node)
+	}
+
+	wg.Wait()
+	return results, nil
+}
+
+func testNodeRTT(ctx context.Context, server string, port int, useTLS bool, sni string, timeout time.Duration) (int, error) {
+	target := net.JoinHostPort(server, strconv.Itoa(port))
+	start := time.Now()
+
+	dialer := &net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", target)
+	if err != nil {
+		return -1, err
+	}
+	defer conn.Close()
+
+	if useTLS || port == 443 {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		if sni != "" {
+			tlsConfig.ServerName = sni
+		} else {
+			tlsConfig.ServerName = server
+		}
+		tlsConn := tls.Client(conn, tlsConfig)
+		_ = tlsConn.SetDeadline(time.Now().Add(timeout))
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return -1, err
+		}
+	}
+
+	delay := int(time.Since(start).Milliseconds())
+	if delay <= 0 {
+		delay = 1
+	}
+	return delay, nil
 }

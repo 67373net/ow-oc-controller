@@ -270,6 +270,20 @@ func (c *Client) DeleteProfile(ctx context.Context, filename string) (string, er
 	return c.RunCommand(ctx, cmd)
 }
 
+// ReadFile reads remote file content from OpenWrt via SSH
+func (c *Client) ReadFile(ctx context.Context, remotePath string) ([]byte, error) {
+	if !c.hasConfig {
+		return nil, fmt.Errorf("ssh not configured")
+	}
+	safePath := filepath.Clean(remotePath)
+	cmd := fmt.Sprintf("cat '%s'", safePath)
+	out, err := c.RunCommand(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
+}
+
 // SaveProfileContent writes yaml content directly to /etc/openclash/config/
 func (c *Client) SaveProfileContent(ctx context.Context, filename, base64Content string) (string, error) {
 	if !c.hasConfig {

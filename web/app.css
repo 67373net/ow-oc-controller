@@ -318,17 +318,17 @@ body {
   flex: 1;
 }
 
-/* Top Overview Grid (4 Equal Width Cards) */
+/* Top Overview Grid (Combined Power & Outbound + Network Speed) */
 .overview-section {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1.25fr 1fr;
   gap: 16px;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 900px) {
   .overview-section {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
   }
 }
 
@@ -653,6 +653,330 @@ body {
   align-items: center;
   justify-content: flex-end;
   min-width: 32px;
+}
+
+/* Combined Power & Outbound Node Card */
+.power-outbound-card {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 20px;
+}
+
+.power-outbound-card .power-col {
+  flex: 1.1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.power-outbound-card .power-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 6px 0;
+}
+
+.power-outbound-card .card-divider {
+  width: 1px;
+  background-color: var(--border-color);
+  align-self: stretch;
+  margin: 2px 0;
+}
+
+.power-outbound-card .outbound-col {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+@media (max-width: 650px) {
+  .power-outbound-card {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .power-outbound-card .card-divider {
+    width: 100%;
+    height: 1px;
+    margin: 0;
+  }
+}
+
+/* Airports & Subscriptions Section (Dedicated Long Module) */
+.airports-section {
+  margin-top: 4px;
+}
+
+.section-count-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+/* Inline Add Subscription Form */
+.sub-inline-form-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sub-inline-form-card .sub-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.sub-inline-form-card .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sub-inline-form-card .form-group label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.sub-inline-form-card .form-group input {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.sub-inline-form-card .form-group input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.sub-inline-form-card .form-group-name {
+  width: 180px;
+}
+
+.sub-inline-form-card .form-group-flex {
+  flex: 1;
+  min-width: 240px;
+}
+
+.sub-inline-form-card .form-group-btn {
+  display: flex;
+  gap: 8px;
+}
+
+/* Airport List Rows */
+.airports-list-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.airport-row-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.airport-row-card:hover {
+  border-color: rgba(9, 105, 218, 0.4);
+}
+
+.airport-row-card.active {
+  border-color: var(--accent-color);
+  background-color: rgba(9, 105, 218, 0.03);
+  box-shadow: 0 0 0 1px var(--accent-color);
+}
+
+.airport-row-card.previewing {
+  border-color: #d97706;
+  background-color: rgba(217, 119, 6, 0.03);
+  box-shadow: 0 0 0 1px #d97706;
+}
+
+.airport-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.airport-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.airport-status-dot.dot-active {
+  background-color: var(--success-color);
+  box-shadow: 0 0 6px rgba(46, 160, 67, 0.5);
+}
+
+.airport-status-dot.dot-preview {
+  background-color: #d97706;
+  box-shadow: 0 0 6px rgba(217, 119, 6, 0.5);
+}
+
+.airport-status-dot.dot-idle {
+  background-color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.airport-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.airport-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.airport-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.airport-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+.airport-badge.badge-active {
+  background-color: var(--success-bg);
+  color: var(--success-color);
+  border: 1px solid var(--success-border);
+}
+
+.airport-badge.badge-preview {
+  background-color: rgba(217, 119, 6, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+
+.airport-badge.badge-idle {
+  background-color: var(--bg-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.airport-row-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.airport-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.airport-current-hint {
+  font-size: 12px;
+  color: var(--success-color);
+  font-weight: 500;
+  padding: 0 6px;
+}
+
+/* Preview Active Banner */
+.preview-active-banner {
+  width: 100%;
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.12) 0%, rgba(217, 119, 6, 0.04) 100%);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.preview-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preview-banner-badge {
+  background-color: #d97706;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.preview-banner-text {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.preview-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.preview-banner-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .airport-row-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .airport-row-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 /* Section Containers (Full Width) */
